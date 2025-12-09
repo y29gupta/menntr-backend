@@ -1,0 +1,25 @@
+{
+  "name": "menntr-backend:dev",
+  "dockerComposeFile": ["../docker-compose.dev.yml"],
+  "service": "app",
+  "runServices": ["app"],
+  "workspaceFolder": "/usr/src/app",
+  "shutdownAction": "stopCompose",
+  "forwardPorts": [3000],
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+
+  "postCreateCommand": "npm ci --prefer-offline --no-audit || npm install",
+  "remoteUser": "node"
+}
