@@ -1,6 +1,13 @@
 {
   "watch": ["src"],
-  "ext": "js,json",
-  "delay": "200",
-  "legacyWatch": true
+  "ext": "ts,js,json",
+  "ignore": ["node_modules", "dist"],
+  "delay": "150ms",
+  "legacyWatch": true,
+  "execMap": {
+    "ts": "ts-node"
+  },
+  "env": {
+    "TS_NODE_PROJECT": "tsconfig.json"
+  }
 }

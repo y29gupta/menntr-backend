@@ -3,7 +3,8 @@ FROM node:20-bullseye-slim
 ENV APP_DIR=/usr/src/app
 WORKDIR $APP_DIR
 ENV PATH=$APP_DIR/node_modules/.bin:$PATH
-ENV NODE_ENV=development
+ENV NODE_ENV=developmentv
+
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
