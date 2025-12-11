@@ -1,13 +1,16 @@
-const fastify = require('fastify')({ logger: true });
-const port = process.env.PORT || 3000;
+// src/index.ts
+import Fastify, { FastifyInstance } from 'fastify';
 
-fastify.get('/', async (req, reply) => {
+const port = Number(process.env.PORT || 3000);
+const fastify: FastifyInstance = Fastify({ logger: true });
+
+fastify.get('/', async () => {
   return { hello: 'world' };
 });
 
-fastify.get('/health_check', async (req, reply) => {
+fastify.get('/health', async () => {
   return { status: 'ok' };
-})
+});
 
 const start = async () => {
   try {
