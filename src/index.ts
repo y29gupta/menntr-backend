@@ -5,7 +5,7 @@ const port = Number(process.env.PORT || 3000);
 const fastify: FastifyInstance = Fastify({ logger: true });
 
 fastify.get('/', async () => {
-  return { hello: 'harish' };
+  return { hello: 'world' };
 });
 
 fastify.get('/health', async () => {
