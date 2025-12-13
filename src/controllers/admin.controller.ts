@@ -1,58 +1,53 @@
-// src/controllers/admin.controller.ts
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { hashPassword, signJwt } from '../services/auth';
+import { AuthService } from '../services/auth';
+import { Serializer } from '../utils/serializers';
+import { Logger } from '../utils/logger';
+import { ForbiddenError, ConflictError, ValidationError } from '../utils/errors';
+import { config } from '../config';
 
-// Simple helper to serialize Prisma user model safely
-function serializeUser(user: any) {
-  return {
-    id: typeof user.id === 'bigint' ? user.id.toString() : user.id,
-    email: user.email,
-    first_name: user.first_name ?? null,
-    last_name: user.last_name ?? null,
-    institution_id:
-      user.institution_id == null
-        ? null
-        : typeof user.institution_id === 'bigint'
-          ? user.institution_id.toString()
-          : user.institution_id,
-    status: user.status ?? null,
-    created_at: user.created_at ?? null,
-    updated_at: user.updated_at ?? null,
-  };
-}
-
-const CreateSuperAdminBody = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
+const CreateSuperAdminSchema = z.object({
+  email: z.string().email('Invalid email format'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
 });
 
 export async function createSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
-  const fastify = request.server as any;
+  const logger = new Logger(request.log);
+
   try {
-    const allow =
-      process.env.ENABLE_SUPERADMIN_CREATION === 'true' || process.env.NODE_ENV !== 'production';
-    if (!allow) return reply.code(403).send({ error: 'Not allowed' });
+    logger.info('Creating super admin', {
+      ip: request.ip,
+      userAgent: request.headers['user-agent'],
+    });
 
-    const parsed = CreateSuperAdminBody.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'Invalid request', details: parsed.error });
+    if (!config.auth.allowSuperAdminCreation) {
+      logger.warn('Super admin creation attempt blocked', { env: config.nodeEnv });
+      throw new ForbiddenError('Super admin creation is not allowed in this environment');
     }
-    const { email, password, firstName, lastName } = parsed.data;
 
-    const prisma = (request as any).prisma;
+    const parsed = CreateSuperAdminSchema.safeParse(request.body);
+    if (!parsed.success) {
+      // FIXED: Use 'issues' instead of 'errors'
+      throw new ValidationError('Invalid request', parsed.error.issues);
+    }
+
+    const { email, password, firstName, lastName } = parsed.data;
+    const prisma = request.prisma;
 
     const existing = await prisma.users.findFirst({ where: { email } });
-    if (existing) return reply.code(409).send({ error: 'User already exists' });
+    if (existing) {
+      logger.warn('Super admin creation failed - user exists', { email });
+      throw new ConflictError('User already exists');
+    }
 
-    const password_hash = await hashPassword(password);
+    const passwordHash = await AuthService.hashPassword(password);
 
     const created = await prisma.users.create({
       data: {
         email,
-        password_hash,
+        password_hash: passwordHash,
         first_name: firstName ?? null,
         last_name: lastName ?? null,
         status: 'active',
@@ -60,11 +55,12 @@ export async function createSuperAdmin(request: FastifyRequest, reply: FastifyRe
       },
     });
 
-    // Optional: assign super admin role (best-effort; don't fail on error)
+    // Assign super admin role
     try {
       const superRole = await prisma.roles.findFirst({
         where: { is_system_role: true, name: 'Super Admin' },
       });
+
       if (superRole) {
         await prisma.user_roles.create({
           data: {
@@ -74,20 +70,35 @@ export async function createSuperAdmin(request: FastifyRequest, reply: FastifyRe
           },
         });
       }
-    } catch (e) {
-      fastify.log.warn({ err: e }, 'failed to auto-assign super role');
+    } catch (err) {
+      logger.warn('Failed to auto-assign super role', { error: err });
     }
 
     const payload = {
-      sub: typeof created.id === 'bigint' ? created.id.toString() : String(created.id),
+      sub: Serializer.bigIntToString(created.id),
       email: created.email,
       roles: ['superadmin'],
     };
-    const token = signJwt(payload);
+    const jwtToken = AuthService.signJwt(payload); // FIXED: Renamed to avoid conflict
 
-    return reply.code(201).send({ token, user: serializeUser(created) });
-  } catch (err: any) {
-    request.server.log.error({ err }, 'createSuperAdmin failed');
-    return reply.code(500).send({ error: 'Internal server error' });
+    logger.audit({
+      userId: payload.sub,
+      action: 'CREATE_SUPER_ADMIN',
+      resource: 'users',
+      resourceId: payload.sub,
+      status: 'success',
+      ipAddress: request.ip,
+      userAgent: request.headers['user-agent'],
+    });
+
+    return reply.code(201).send({
+      token: jwtToken, // FIXED: Use renamed variable
+      user: Serializer.user(created),
+    });
+  } catch (error) {
+    logger.error('createSuperAdmin failed', error as Error, {
+      ip: request.ip,
+    });
+    throw error;
   }
 }

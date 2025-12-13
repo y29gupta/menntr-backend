@@ -1,35 +1,32 @@
-// src/services/email.ts
 import type { EmailClient } from '@azure/communication-email';
+import { config } from '../config';
+import { AppError } from '../utils/errors';
 
-export async function sendInviteMail(mailer: EmailClient, to: string, link: string, name?: string) {
-  const subject = 'MENNTR Invitation';
-  const html = `
-    <p>Hi ${name || ''},</p>
-    <p>You have been invited to MENNTR. Click the link below to complete setup:</p>
-    <p><a href="${link}">${link}</a></p>
-    <p>This link will expire.</p>
-  `;
+export class EmailService {
+  constructor(private client: EmailClient) {}
 
-  const message = {
-    senderAddress: process.env.ACS_FROM_EMAIL!, // must be set
-    content: {
-      subject,
-      html,
-    },
-    recipients: {
-      to: [{ address: to }],
-    },
-  };
+  async sendInvite(to: string, link: string, name?: string): Promise<void> {
+    const subject = 'MENNTR Invitation';
+    const html = `
+      <p>Hi ${name || ''},</p>
+      <p>You have been invited to MENNTR. Click the link below to complete setup:</p>
+      <p><a href="${link}">${link}</a></p>
+      <p>This link will expire in ${config.auth.otpExpiryMinutes} minutes.</p>
+    `;
 
-  try {
-    // beginSend returns a Poller which we wait for.
-    const poller = await mailer.beginSend(message);
-    const result = await poller.pollUntilDone();
-    // result may contain per-recipient status
-    return result;
-  } catch (err) {
-    // log full error server-side and rethrow a sanitized error
-    console.error('sendInviteMail error:', err);
-    throw new Error('Failed to send email');
+    const message = {
+      senderAddress: config.email.fromEmail,
+      content: { subject, html },
+      recipients: {
+        to: [{ address: to }],
+      },
+    };
+
+    try {
+      const poller = await this.client.beginSend(message);
+      await poller.pollUntilDone();
+    } catch (error) {
+      throw new AppError('Failed to send email', 500);
+    }
   }
 }

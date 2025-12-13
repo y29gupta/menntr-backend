@@ -1,11 +1,41 @@
-// src/config/index.ts
 import dotenv from 'dotenv';
+import { z } from 'zod';
+
 dotenv.config();
+
+const ConfigSchema = z.object({
+  PORT: z.string().default('4000').transform(Number),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+
+  // JWT Configuration
+  JWT_PRIVATE_KEY: z.string().optional(),
+  JWT_PRIVATE_KEY_B64: z.string().optional(),
+  JWT_PUBLIC_KEY: z.string().optional(),
+  JWT_PUBLIC_KEY_B64: z.string().optional(),
+  JWT_ISSUER: z.string().default('menntr'),
+  JWT_AUDIENCE: z.string().default('menntr.api'),
+  JWT_EXPIRES_IN: z.string().default('604800').transform(Number), // 7 days in seconds
+
+  // Auth Configuration
+  OTP_EXPIRY_MINUTES: z.string().default('15').transform(Number),
+  ONE_TIME_LINK_BASE: z.string().default('http://localhost:3000/auth/one-time-login'),
+  BCRYPT_SALT_ROUNDS: z.string().default('12').transform(Number),
+  ENABLE_SUPERADMIN_CREATION: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+
+  // Database
+  DATABASE_URL: z.string(),
+
+  // Email (Azure Communication Services)
+  ACS_CONNECTION_STRING: z.string(),
+  ACS_FROM_EMAIL: z.string().email(),
+});
 
 function fromEnvOrB64(envName: string, b64Name: string): string | undefined {
   const raw = process.env[envName];
   if (raw && raw.trim().length > 0) {
-    // allow newline-escaped PEMs in .env (contains literal \n sequences)
     return raw.includes('\\n') ? raw.replace(/\\n/g, '\n') : raw;
   }
 
@@ -14,18 +44,20 @@ function fromEnvOrB64(envName: string, b64Name: string): string | undefined {
     try {
       return Buffer.from(b64, 'base64').toString('utf8');
     } catch (e) {
-      throw new Error(`Invalid base64 for ${b64Name}`);
+      throw new Error(`Invalid base64 for ${b64Name}: ${e}`);
     }
   }
 
   return undefined;
 }
 
+// Validate environment variables
+const env = ConfigSchema.parse(process.env);
+
 const privateKey = fromEnvOrB64('JWT_PRIVATE_KEY', 'JWT_PRIVATE_KEY_B64');
 const publicKey = fromEnvOrB64('JWT_PUBLIC_KEY', 'JWT_PUBLIC_KEY_B64');
 
 if (!privateKey || !publicKey) {
-  // Fail fast with clear error
   throw new Error(
     'JWT keys are missing. Set JWT_PRIVATE_KEY and JWT_PUBLIC_KEY (newline-escaped PEM) ' +
       'or JWT_PRIVATE_KEY_B64 and JWT_PUBLIC_KEY_B64 (base64-encoded PEM) in the environment.'
@@ -33,27 +65,32 @@ if (!privateKey || !publicKey) {
 }
 
 export const config = {
-  port: Number(process.env.PORT || 4000),
+  port: env.PORT,
+  nodeEnv: env.NODE_ENV,
+  isDevelopment: env.NODE_ENV === 'development',
+  isProduction: env.NODE_ENV === 'production',
 
   jwt: {
     privateKey,
     publicKey,
-    issuer: process.env.JWT_ISSUER || 'menntr',
-    audience: process.env.JWT_AUDIENCE || 'menntr.api',
-    expiresIn: 60 * 60 * 24 * 7,
+    issuer: env.JWT_ISSUER,
+    audience: env.JWT_AUDIENCE,
+    expiresIn: env.JWT_EXPIRES_IN,
   },
 
-  otpExpiryMinutes: Number(process.env.OTP_EXPIRY_MINUTES || 15),
-  oneTimeLinkBase: process.env.ONE_TIME_LINK_BASE || 'http://localhost:3000/auth/one-time-login',
-
-  smtp: {
-    host: process.env.SMTP_HOST || '',
-    port: Number(process.env.SMTP_PORT || 587),
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASS || '',
+  auth: {
+    otpExpiryMinutes: env.OTP_EXPIRY_MINUTES,
+    oneTimeLinkBase: env.ONE_TIME_LINK_BASE,
+    bcryptSaltRounds: env.BCRYPT_SALT_ROUNDS,
+    allowSuperAdminCreation: env.ENABLE_SUPERADMIN_CREATION || !env.NODE_ENV.includes('production'),
   },
 
-  bcryptSaltRounds: Number(process.env.BCRYPT_SALT_ROUNDS || 12),
-  allowSuperAdminCreation:
-    process.env.ENABLE_SUPERADMIN_CREATION === 'true' || process.env.NODE_ENV !== 'production',
-};
+  database: {
+    url: env.DATABASE_URL,
+  },
+
+  email: {
+    acsConnectionString: env.ACS_CONNECTION_STRING,
+    fromEmail: env.ACS_FROM_EMAIL,
+  },
+} as const;

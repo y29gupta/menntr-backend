@@ -1,89 +1,125 @@
-﻿// src/controllers/auth.controller.ts
-import type { FastifyRequest, FastifyReply } from 'fastify';
+﻿import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { comparePassword, hashPassword, genToken, sha256, signJwt } from '../services/auth';
-import { sendInviteMail } from '../services/email';
+import { AuthService } from '../services/auth';
+import { EmailService } from '../services/email';
+import { Serializer } from '../utils/serializers';
+import { Logger } from '../utils/logger';
+import { ValidationError, UnauthorizedError, ForbiddenError, NotFoundError } from '../utils/errors';
 import { config } from '../config';
 
-const LoginBody = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+const LoginSchema = z.object({
+  email: z.string().email('Invalid email format'),
+  password: z.string().min(1, 'Password is required'),
 });
 
-const InviteBody = z.object({
-  email: z.string().email(),
+const InviteSchema = z.object({
+  email: z.string().email('Invalid email format'),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   institutionId: z.number().int().optional().nullable(),
 });
 
-const ConsumeInviteBody = z.object({
-  email: z.string().email(),
-  token: z.string(),
+const ConsumeInviteSchema = z.object({
+  email: z.string().email('Invalid email format'),
+  token: z.string().min(1, 'Token is required'),
 });
 
-const ChangePasswordBody = z.object({
-  newPassword: z.string().min(8),
+const ChangePasswordSchema = z.object({
+  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
   oldPassword: z.string().optional(),
 });
 
-function serializeUserForAuth(user: any) {
-  return {
-    id: typeof user.id === 'bigint' ? user.id.toString() : user.id,
-    email: user.email,
-  };
-}
-
 export async function loginHandler(request: FastifyRequest, reply: FastifyReply) {
+  const logger = new Logger(request.log);
+
   try {
-    const parsed = LoginBody.safeParse(request.body);
+    const parsed = LoginSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: 'Invalid request', details: parsed.error });
+      // FIXED: Use 'issues' instead of 'errors'
+      throw new ValidationError('Invalid request', parsed.error.issues);
     }
+
     const { email, password } = parsed.data;
+    const prisma = request.prisma;
 
-    const prisma = (request as any).prisma;
+    logger.info('Login attempt', { email, ip: request.ip });
+
     const user = await prisma.users.findFirst({ where: { email } });
-    if (!user || !user.password_hash) return reply.code(401).send({ error: 'Invalid credentials' });
+    if (!user || !user.password_hash) {
+      logger.warn('Login failed - invalid credentials', { email, ip: request.ip });
+      throw new UnauthorizedError('Invalid credentials');
+    }
 
-    const ok = await comparePassword(password, user.password_hash);
-    if (!ok) return reply.code(401).send({ error: 'Invalid credentials' });
+    const isValidPassword = await AuthService.comparePassword(password, user.password_hash);
+    if (!isValidPassword) {
+      logger.warn('Login failed - wrong password', { email, ip: request.ip });
+      throw new UnauthorizedError('Invalid credentials');
+    }
 
-    if (user.status && user.status !== 'active')
-      return reply.code(403).send({ error: 'User not active' });
+    if (user.status && user.status !== 'active') {
+      logger.warn('Login failed - user not active', {
+        email,
+        status: user.status,
+        ip: request.ip,
+      });
+      throw new ForbiddenError('User account is not active');
+    }
 
-    const userId = typeof user.id === 'bigint' ? user.id.toString() : user.id;
-    const token = signJwt({ sub: userId, email: user.email });
+    const userId = Serializer.bigIntToString(user.id);
+    const jwtToken = AuthService.signJwt({ sub: userId, email: user.email }); // FIXED: Renamed
 
-    // update last_login_at, ignore errors
+    // Update last login (fire and forget)
     prisma.users
-      .update({ where: { id: user.id }, data: { last_login_at: new Date() } })
-      .catch(() => null);
+      .update({
+        where: { id: user.id },
+        data: { last_login_at: new Date() },
+      })
+      .catch((err: string) => logger.warn('Failed to update last_login_at', { error: err }));
 
-    return reply.send({
-      token,
-      must_change_password: !!user.must_change_password,
-      user: serializeUserForAuth(user),
+    logger.audit({
+      userId,
+      action: 'LOGIN',
+      resource: 'auth',
+      status: 'success',
+      ipAddress: request.ip,
+      userAgent: request.headers['user-agent'],
     });
-  } catch (err: any) {
-    request.server.log.error({ err }, 'loginHandler failed');
-    return reply.code(500).send({ error: 'Internal server error' });
+
+    return reply.send(Serializer.authResponse(user, jwtToken, !!user.must_change_password));
+  } catch (error) {
+    logger.error('Login failed', error as Error, { ip: request.ip });
+    throw error;
   }
 }
 
 export async function generateInviteHandler(request: FastifyRequest, reply: FastifyReply) {
-  try {
-    const parsed = InviteBody.safeParse(request.body);
-    if (!parsed.success)
-      return reply.code(400).send({ error: 'Invalid request', details: parsed.error });
-    const { email, firstName, lastName, institutionId } = parsed.data;
+  const logger = new Logger(request.log);
 
-    const prisma = (request as any).prisma;
-    const mailer = (request.server as any).mailer;
+  try {
+    const parsed = InviteSchema.safeParse(request.body);
+    if (!parsed.success) {
+      // FIXED: Use 'issues' instead of 'errors'
+      throw new ValidationError('Invalid request', parsed.error.issues);
+    }
+
+    const { email, firstName, lastName, institutionId } = parsed.data;
+    const prisma = request.prisma;
+    const emailService = new EmailService(request.server.mailer);
+    const currentUser = (request as any).user;
+
+    logger.info('Generating invite', {
+      email,
+      institutionId,
+      invitedBy: currentUser?.sub,
+    });
 
     let user = await prisma.users.findFirst({
-      where: { email, institution_id: institutionId ?? undefined },
+      where: {
+        email,
+        institution_id: institutionId ?? undefined,
+      },
     });
+
     if (!user) {
       user = await prisma.users.create({
         data: {
@@ -97,8 +133,8 @@ export async function generateInviteHandler(request: FastifyRequest, reply: Fast
       });
     }
 
-    const { token: rawToken, hash: tokenHash } = genToken();
-    const expiresAt = new Date(Date.now() + config.otpExpiryMinutes * 60 * 1000);
+    const { token: rawToken, hash: tokenHash } = AuthService.generateToken();
+    const expiresAt = new Date(Date.now() + config.auth.otpExpiryMinutes * 60 * 1000);
 
     await prisma.auth_tokens.create({
       data: {
@@ -108,36 +144,50 @@ export async function generateInviteHandler(request: FastifyRequest, reply: Fast
         expires_at: expiresAt,
       },
     });
-    
-    const link = `${config.oneTimeLinkBase}?token=${rawToken}&email=${encodeURIComponent(email)}`;
-    try {
-      console.log('---- INVITE DEBUG ----');
-      console.log('RAW TOKEN:', rawToken);
-      console.log('HASH STORED:', tokenHash);
-      console.log('EMAIL SENT LINK:', link);
 
-      await sendInviteMail(mailer, email, link, `${firstName ?? ''} ${lastName ?? ''}`.trim());
-    } catch (e) {
-      request.server.log.warn({ err: e }, 'sendInviteMail failed');
+    const link = `${config.auth.oneTimeLinkBase}?token=${rawToken}&email=${encodeURIComponent(email)}`;
+
+    try {
+      await emailService.sendInvite(email, link, `${firstName ?? ''} ${lastName ?? ''}`.trim());
+      logger.info('Invite email sent successfully', { email, userId: user.id });
+    } catch (err) {
+      logger.error('Failed to send invite email', err as Error, { email });
     }
 
-    return reply.send({ message: 'If the email exists, an invite has been sent.' });
-  } catch (err: any) {
-    request.server.log.error({ err }, 'generateInviteHandler failed');
-    return reply.code(500).send({ error: 'Internal server error' });
+    logger.audit({
+      userId: currentUser?.sub,
+      action: 'GENERATE_INVITE',
+      resource: 'users',
+      resourceId: Serializer.bigIntToString(user.id),
+      status: 'success',
+      ipAddress: request.ip,
+      userAgent: request.headers['user-agent'],
+      metadata: { invitedEmail: email },
+    });
+
+    return reply.send({ message: 'Invitation sent successfully' });
+  } catch (error) {
+    logger.error('generateInvite failed', error as Error);
+    throw error;
   }
 }
 
 export async function consumeInviteHandler(request: FastifyRequest, reply: FastifyReply) {
-  try {
-    const parsed = ConsumeInviteBody.safeParse(request.body);
-    if (!parsed.success)
-      return reply.code(400).send({ error: 'Invalid request', details: parsed.error });
-    const { email, token } = parsed.data;
+  const logger = new Logger(request.log);
 
-    const prisma = (request as any).prisma;
-    const tokenHash = sha256(token);
+  try {
+    const parsed = ConsumeInviteSchema.safeParse(request.body);
+    if (!parsed.success) {
+      // FIXED: Use 'issues' instead of 'errors'
+      throw new ValidationError('Invalid request', parsed.error.issues);
+    }
+
+    const { email, token } = parsed.data;
+    const prisma = request.prisma;
+    const tokenHash = AuthService.sha256(token);
     const now = new Date();
+
+    logger.info('Consuming invite', { email, ip: request.ip });
 
     const tokenRec = await prisma.auth_tokens.findFirst({
       where: {
@@ -147,69 +197,131 @@ export async function consumeInviteHandler(request: FastifyRequest, reply: Fasti
         expires_at: { gt: now },
       },
     });
-    if (!tokenRec) return reply.code(401).send({ error: 'Invalid or expired link' });
+
+    if (!tokenRec) {
+      logger.warn('Invalid or expired invite token', { email, ip: request.ip });
+      throw new UnauthorizedError('Invalid or expired invitation link');
+    }
 
     const user = await prisma.users.findUnique({ where: { id: tokenRec.user_id } });
-    if (!user || user.email !== email)
-      return reply.code(401).send({ error: 'Invalid token or email' });
+    if (!user || user.email !== email) {
+      logger.warn('Token/email mismatch', { email, ip: request.ip });
+      throw new UnauthorizedError('Invalid token or email');
+    }
 
+    // Mark all unused tokens for this user as used
     await prisma.auth_tokens.updateMany({
       where: { user_id: user.id, used_at: null },
       data: { used_at: new Date() },
     });
 
+    const userId = Serializer.bigIntToString(user.id);
+
+    logger.audit({
+      userId,
+      action: 'CONSUME_INVITE',
+      resource: 'auth',
+      status: 'success',
+      ipAddress: request.ip,
+      userAgent: request.headers['user-agent'],
+    });
+
     if (user.must_change_password) {
-      const temp = signJwt({
-        sub: user.id.toString(),
+      const tempToken = AuthService.signJwt({
+        sub: userId,
         email: user.email,
         temp: true,
         must_change_password: true,
       });
-      return reply.send({ token: temp, must_change_password: true });
+      return reply.send({
+        token: tempToken,
+        mustChangePassword: true,
+      });
     }
 
-    const jwt = signJwt({ sub: user.id.toString(), email: user.email });
-    return reply.send({ token: jwt, must_change_password: false });
-  } catch (err: any) {
-    request.server.log.error({ err }, 'consumeInviteHandler failed');
-    return reply.code(500).send({ error: 'Internal server error' });
+    const jwtToken = AuthService.signJwt({ sub: userId, email: user.email }); // FIXED: Renamed
+    return reply.send({
+      token: jwtToken,
+      mustChangePassword: false,
+    });
+  } catch (error) {
+    logger.error('consumeInvite failed', error as Error);
+    throw error;
   }
 }
 
 export async function changePasswordHandler(request: FastifyRequest, reply: FastifyReply) {
+  const logger = new Logger(request.log);
+
   try {
-    const parsed = ChangePasswordBody.safeParse(request.body);
-    if (!parsed.success)
-      return reply.code(400).send({ error: 'Invalid request', details: parsed.error });
+    const parsed = ChangePasswordSchema.safeParse(request.body);
+    if (!parsed.success) {
+      // FIXED: Use 'issues' instead of 'errors'
+      throw new ValidationError('Invalid request', parsed.error.issues);
+    }
 
     const { newPassword, oldPassword } = parsed.data;
     const payload = (request as any).user;
-    if (!payload) return reply.code(401).send({ error: 'Unauthorized' });
 
-    const prisma = (request as any).prisma;
-    if (oldPassword) {
-      const dbUser = await prisma.users.findUnique({ where: { id: Number(payload.sub) } });
-      if (!dbUser) return reply.code(404).send({ error: 'User not found' });
-
-      const ok = await comparePassword(oldPassword, dbUser.password_hash || '');
-      if (!ok) return reply.code(401).send({ error: 'Invalid old password' });
+    if (!payload) {
+      throw new UnauthorizedError();
     }
 
-    const hashed = await hashPassword(newPassword);
+    const prisma = request.prisma;
+    const userId = Number(payload.sub);
+
+    logger.info('Password change request', { userId });
+
+    const dbUser = await prisma.users.findUnique({ where: { id: userId } });
+    if (!dbUser) {
+      throw new NotFoundError('User not found');
+    }
+
+    // Verify old password if provided
+    if (oldPassword) {
+      const isValid = await AuthService.comparePassword(oldPassword, dbUser.password_hash || '');
+      if (!isValid) {
+        logger.warn('Password change failed - invalid old password', { userId });
+        throw new UnauthorizedError('Invalid old password');
+      }
+    }
+
+    const hashedPassword = await AuthService.hashPassword(newPassword);
+
     await prisma.users.update({
-      where: { id: Number(payload.sub) },
-      data: { password_hash: hashed, must_change_password: false, status: 'active' },
+      where: { id: userId },
+      data: {
+        password_hash: hashedPassword,
+        must_change_password: false,
+        status: 'active',
+      },
     });
 
+    // Invalidate all unused tokens
     await prisma.auth_tokens.updateMany({
-      where: { user_id: Number(payload.sub), used_at: null },
+      where: { user_id: userId, used_at: null },
       data: { used_at: new Date() },
     });
 
-    const jwt = signJwt({ sub: payload.sub, email: payload.email });
-    return reply.send({ token: jwt });
-  } catch (err: any) {
-    request.server.log.error({ err }, 'changePasswordHandler failed');
-    return reply.code(500).send({ error: 'Internal server error' });
+    const jwtToken = AuthService.signJwt({
+      // FIXED: Renamed
+      sub: payload.sub,
+      email: payload.email,
+    });
+
+    logger.audit({
+      userId: payload.sub,
+      action: 'CHANGE_PASSWORD',
+      resource: 'users',
+      resourceId: payload.sub,
+      status: 'success',
+      ipAddress: request.ip,
+      userAgent: request.headers['user-agent'],
+    });
+
+    return reply.send({ token: jwtToken }); // FIXED: Use renamed variable
+  } catch (error) {
+    logger.error('changePassword failed', error as Error);
+    throw error;
   }
 }
