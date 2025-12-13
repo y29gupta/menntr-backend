@@ -31,6 +31,12 @@ const ConfigSchema = z.object({
   // Email (Azure Communication Services)
   ACS_CONNECTION_STRING: z.string(),
   ACS_FROM_EMAIL: z.string().email(),
+  INVITE_FROM_EMAIL: z.string().email(),
+
+  SMTP_HOST: z.string(),
+  SMTP_PORT: z.string(),
+  SMTP_USER: z.string(),
+  SMTP_PASS: z.string(),
 });
 
 function fromEnvOrB64(envName: string, b64Name: string): string | undefined {
@@ -92,5 +98,16 @@ export const config = {
   email: {
     acsConnectionString: env.ACS_CONNECTION_STRING,
     fromEmail: env.ACS_FROM_EMAIL,
+    inviteFromEmail: env.INVITE_FROM_EMAIL,
   },
+  smtp: {
+    smtpHost: env.SMTP_HOST,
+    smtpPort: env.SMTP_PORT,
+    smtpUser: env.SMTP_USER,
+    smtpPass: env.SMTP_PASS,
+//     SMTP_HOST=smtp.azurecomm.net
+// SMTP_PORT=587
+// SMTP_USER=invite@pathaxiom.com
+// SMTP_PASS=pQ48Q~uZZ-6ecHFOn97Qd9MLr2WCNwtpSSonJb8x
+  }
 } as const;

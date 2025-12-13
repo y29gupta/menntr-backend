@@ -7,6 +7,7 @@ import authRoutes from './routes/auth';
 import institutionRoutes from './routes/institutions';
 import { errorHandler } from './middleware/errorHandler';
 import { config } from './config';
+import inviteMailer from './plugins/inviteMailer';
 
 export function buildApp() {
   const app = fastify({
@@ -28,6 +29,7 @@ export function buildApp() {
   app.register(prismaPlugin);
   app.register(mailerPlugin);
   app.register(jwtPlugin);
+  app.register(inviteMailer);
 
   // Request logging hook - track start time
   app.addHook('onRequest', async (request) => {
