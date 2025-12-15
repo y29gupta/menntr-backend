@@ -6,7 +6,7 @@ export default fp(async (fastify) => {
   const { smtp } = config;
 
   if (!smtp.smtpHost || !smtp.smtpPort || !smtp.smtpUser || !smtp.smtpPass) {
-    fastify.log.warn('SMTP config missing. Invite mailer disabled.');
+    fastify.log.warn('SMTP not configured, inviteMailer disabled');
     return;
   }
 
@@ -20,15 +20,7 @@ export default fp(async (fastify) => {
     },
   });
 
-  // DO NOT await this
-  transporter
-    .verify()
-    .then(() => {
-      fastify.log.info('SMTP transporter verified');
-    })
-    .catch((err) => {
-      fastify.log.error({ err }, 'SMTP verification failed');
-    });
+  // await transporter.verify();
 
   fastify.decorate('inviteMailer', transporter);
 });
