@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "nodemon --config nodemon.json src/server.ts",
+    "dev": "node dist/server.js",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "eslint \"src/**/*.{ts,js,tsx,jsx}\" || true",

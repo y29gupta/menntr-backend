@@ -71,7 +71,7 @@ if (!privateKey || !publicKey) {
 }
 
 export const config = {
-  port: env.PORT,
+  port: env.PORT || 4000,
   nodeEnv: env.NODE_ENV,
   isDevelopment: env.NODE_ENV === 'development',
   isProduction: env.NODE_ENV === 'production',
