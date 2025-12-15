@@ -111,9 +111,5 @@ export const config = {
     smtpPort: env.SMTP_PORT,
     smtpUser: env.SMTP_USER,
     smtpPass: env.SMTP_PASS,
-    //     SMTP_HOST=smtp.azurecomm.net
-    // SMTP_PORT=587
-    // SMTP_USER=invite@pathaxiom.com
-    // SMTP_PASS=pQ48Q~uZZ-6ecHFOn97Qd9MLr2WCNwtpSSonJb8x
   },
 } as const;
