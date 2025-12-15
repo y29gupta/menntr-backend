@@ -1,25 +1,34 @@
 import fp from 'fastify-plugin';
 import nodemailer from 'nodemailer';
 import { config } from '../config';
-export default fp(async (fastify) => {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
 
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
-    throw new Error('Missing SMTP configuration for invite mailer');
+export default fp(async (fastify) => {
+  const { smtp } = config;
+
+  if (!smtp.smtpHost || !smtp.smtpPort || !smtp.smtpUser || !smtp.smtpPass) {
+    fastify.log.warn('SMTP config missing. Invite mailer disabled.');
+    return;
   }
 
   const transporter = nodemailer.createTransport({
-    host: config.smtp.smtpHost,
-    port: Number(config.smtp.smtpPort),
-    secure: false, // TLS via STARTTLS
+    host: smtp.smtpHost,
+    port: Number(smtp.smtpPort),
+    secure: false,
     auth: {
-      user: config.smtp.smtpUser,
-      pass: config.smtp.smtpPass,
+      user: smtp.smtpUser,
+      pass: smtp.smtpPass,
     },
   });
 
-  // verify once on startup
-  await transporter.verify();
+  // DO NOT await this
+  transporter
+    .verify()
+    .then(() => {
+      fastify.log.info('SMTP transporter verified');
+    })
+    .catch((err) => {
+      fastify.log.error({ err }, 'SMTP verification failed');
+    });
 
   fastify.decorate('inviteMailer', transporter);
 });
