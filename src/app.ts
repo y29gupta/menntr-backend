@@ -28,7 +28,7 @@ export function buildApp() {
   });
 
   app.register(cors, {
-    origin: config.frontendUrl,
+    origin: [config.frontendUrl, "https://menntr-frontend.netlify.app"],
     credentials: true, // allow cookies
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -40,7 +40,7 @@ export function buildApp() {
     hook: 'onRequest',
     parseOptions: {},
   });
-  
+
   // Register plugins
   app.register(prismaPlugin);
   app.register(mailerPlugin);
