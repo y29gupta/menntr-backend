@@ -7,6 +7,9 @@ const ConfigSchema = z.object({
   PORT: z.string().default('4000').transform(Number),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 
+  FRONTEND_URL: z.string().default('http://localhost:3000'),
+  COOKIE_SECRET: z.string().min(32, 'Cookie secret must be at least 32 characters'),
+
   // JWT Configuration
   JWT_PRIVATE_KEY: z.string().optional(),
   JWT_PRIVATE_KEY_B64: z.string().optional(),
@@ -91,6 +94,9 @@ export const config = {
     allowSuperAdminCreation: env.ENABLE_SUPERADMIN_CREATION || !env.NODE_ENV.includes('production'),
   },
 
+  frontendUrl: env.FRONTEND_URL,
+  cookieSecret: env.COOKIE_SECRET,
+  
   database: {
     url: env.DATABASE_URL,
   },
@@ -105,9 +111,9 @@ export const config = {
     smtpPort: env.SMTP_PORT,
     smtpUser: env.SMTP_USER,
     smtpPass: env.SMTP_PASS,
-//     SMTP_HOST=smtp.azurecomm.net
-// SMTP_PORT=587
-// SMTP_USER=invite@pathaxiom.com
-// SMTP_PASS=pQ48Q~uZZ-6ecHFOn97Qd9MLr2WCNwtpSSonJb8x
-  }
+    //     SMTP_HOST=smtp.azurecomm.net
+    // SMTP_PORT=587
+    // SMTP_USER=invite@pathaxiom.com
+    // SMTP_PASS=pQ48Q~uZZ-6ecHFOn97Qd9MLr2WCNwtpSSonJb8x
+  },
 } as const;

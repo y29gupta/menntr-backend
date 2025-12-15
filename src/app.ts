@@ -1,4 +1,6 @@
 import fastify from 'fastify';
+import cookie from '@fastify/cookie';
+import cors from '@fastify/cors';
 import prismaPlugin from './plugins/prisma';
 import mailerPlugin from './plugins/mailer';
 import jwtPlugin from './plugins/jwt';
@@ -25,6 +27,20 @@ export function buildApp() {
     },
   });
 
+  app.register(cors, {
+    origin: config.frontendUrl,
+    credentials: true, // allow cookies
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
+  // Register cookie support
+  app.register(cookie, {
+    secret: config.cookieSecret,
+    hook: 'onRequest',
+    parseOptions: {},
+  });
+  
   // Register plugins
   app.register(prismaPlugin);
   app.register(mailerPlugin);

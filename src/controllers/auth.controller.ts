@@ -4,8 +4,10 @@ import { AuthService } from '../services/auth';
 import { EmailService } from '../services/email';
 import { Serializer } from '../utils/serializers';
 import { Logger } from '../utils/logger';
+import { CookieManager } from '../utils/cookie';
 import { ValidationError, UnauthorizedError, ForbiddenError, NotFoundError } from '../utils/errors';
 import { config } from '../config';
+import prisma from '../plugins/prisma';
 
 const LoginSchema = z.object({
   email: z.string().email('Invalid email format'),
@@ -68,6 +70,9 @@ export async function loginHandler(request: FastifyRequest, reply: FastifyReply)
     const userId = Serializer.bigIntToString(user.id);
     const jwtToken = AuthService.signJwt({ sub: userId, email: user.email }); // FIXED: Renamed
 
+    // Set token in HTTP-only cookie
+    CookieManager.setAuthToken(reply, jwtToken);
+
     // Update last login (fire and forget)
     prisma.users
       .update({
@@ -85,9 +90,41 @@ export async function loginHandler(request: FastifyRequest, reply: FastifyReply)
       userAgent: request.headers['user-agent'],
     });
 
-    return reply.send(Serializer.authResponse(user, jwtToken, !!user.must_change_password));
+    return reply.send(Serializer.authResponse(true, user, !!user.must_change_password));
   } catch (error) {
     logger.error('Login failed', error as Error, { ip: request.ip });
+    throw error;
+  }
+}
+
+export async function logoutHandler(request: FastifyRequest, reply: FastifyReply) {
+  const logger = new Logger(request.log);
+  const payload = (request as any).user;
+
+  try {
+    // Clear cookies
+    CookieManager.clearAuthCookies(reply);
+
+    // Invalidate tokens in database
+    if (payload?.sub) {
+      const prisma = request.prisma;
+      await prisma.auth_tokens.updateMany({
+        where: { user_id: Number(payload.sub), used_at: null },
+        data: { user_at: new Date() },
+      });
+
+      logger.audit({
+        userId: payload.sub,
+        action: 'LOGOUT',
+        resource: 'auth',
+        status: 'success',
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+      });
+    }
+    return reply.send({ success: true, message: 'Logged out successfully' });
+  } catch (error) {
+    logger.error('Logout failed', error as Error);
     throw error;
   }
 }

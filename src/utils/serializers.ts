@@ -30,9 +30,10 @@ export class Serializer {
     };
   }
 
-  static authResponse(user: any, token: string, mustChangePassword = false) {
+  static authResponse(status: boolean,user: any, mustChangePassword = false) {
     return {
-      token,
+      // token,
+      status: status,
       mustChangePassword,
       user: {
         id: this.bigIntToString(user.id),
