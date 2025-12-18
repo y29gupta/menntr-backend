@@ -12,6 +12,8 @@ import { config } from './config';
 import inviteMailer from './plugins/inviteMailer';
 // import { requestUserPlugin } from './plugins/request-user-plugin';
 import authPlugin from './plugins/auth.plugin';
+import { graphqlPlugin } from "./plugins/graphql";
+
 
 export function buildApp() {
   const app = fastify({
@@ -45,11 +47,14 @@ export function buildApp() {
 
   // Register plugins
   app.register(prismaPlugin);
+    app.register(graphqlPlugin);
   app.register(mailerPlugin);
   app.register(jwtPlugin);
   app.register(inviteMailer);
   // app.register(requestUserPlugin);
   app.register(authPlugin);
+
+
   // Request logging hook - track start time
   app.addHook('onRequest', async (request) => {
     (request as any).startTime = Date.now();
