@@ -253,6 +253,22 @@ export async function getInstitutionsHandler(request: FastifyRequest, reply: Fas
     const prisma = (request as any).prisma;
 
     const institutions = await prisma.institution.findMany({
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        contactEmail: true,
+        status: true,
+        planId: true,
+        createdAt: true,
+        plan: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+      },
       orderBy: {
         createdAt: 'desc',
       },
@@ -264,9 +280,7 @@ export async function getInstitutionsHandler(request: FastifyRequest, reply: Fas
     });
   } catch (err) {
     request.server.log.error({ err }, 'getInstitutionsHandler failed');
-    return reply.code(500).send({
-      error: 'Internal server error',
-    });
+    return reply.code(500).send({ error: 'Internal server error' });
   }
 }
 
