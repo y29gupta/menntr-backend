@@ -7,12 +7,13 @@ export class Serializer {
     return {
       id: this.bigIntToString(user.id),
       email: user.email,
-      firstName: user.first_name ?? null,
-      lastName: user.last_name ?? null,
-      institutionId: user.institution_id ? this.bigIntToString(user.institution_id) : null,
+      firstName: user.firstName ?? null,
+      lastName: user.lastName ?? null,
+      institutionId: user.institutionId ?? null,
       status: user.status ?? null,
-      createdAt: user.created_at ?? null,
-      updatedAt: user.updated_at ?? null,
+      createdAt: user.createdAt?.toISOString?.() ?? user.createdAt,
+      updatedAt: user.updatedAt?.toISOString?.() ?? user.updatedAt,
+      lastLoginAt: user.lastLoginAt?.toISOString?.() ?? user.lastLoginAt,
     };
   }
 
@@ -30,7 +31,7 @@ export class Serializer {
     };
   }
 
-  static authResponse(status: boolean,user: any, mustChangePassword = false) {
+  static authResponse(status: boolean, user: any, mustChangePassword = false) {
     return {
       // token,
       status: status,
@@ -40,5 +41,15 @@ export class Serializer {
         email: user.email,
       },
     };
+  }
+  static serializeRoles(user: any) {
+    if (!user?.roles) return [];
+
+    return user.roles.map((ur: any) => ({
+      id: ur.role.id,
+      name: ur.role.name,
+      institutionId: ur.role.institutionId ?? null,
+      isSystemRole: ur.role.isSystemRole,
+    }));
   }
 }

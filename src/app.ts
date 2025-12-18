@@ -10,6 +10,8 @@ import institutionRoutes from './routes/institutions';
 import { errorHandler } from './middleware/errorHandler';
 import { config } from './config';
 import inviteMailer from './plugins/inviteMailer';
+// import { requestUserPlugin } from './plugins/request-user-plugin';
+import authPlugin from './plugins/auth.plugin';
 
 export function buildApp() {
   const app = fastify({
@@ -46,7 +48,8 @@ export function buildApp() {
   app.register(mailerPlugin);
   app.register(jwtPlugin);
   app.register(inviteMailer);
-
+  // app.register(requestUserPlugin);
+  app.register(authPlugin);
   // Request logging hook - track start time
   app.addHook('onRequest', async (request) => {
     (request as any).startTime = Date.now();

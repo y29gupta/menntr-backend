@@ -1,6 +1,11 @@
 ﻿// src/controllers/institution.controller.ts
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { ValidationError, ConflictError, ForbiddenError, UnauthorizedError } from '../utils/errors';
+import { Logger } from '../utils/logger';
+import { AuthService } from '../services/auth';
+import { Serializer } from '../utils/serializers';
+import { CookieManager } from '../utils/cookie';
 
 const CreateInstitutionBody = z.object({
   name: z.string().min(2),
@@ -10,6 +15,14 @@ const CreateInstitutionBody = z.object({
   planId: z.number().int().optional().nullable(),
 });
 
+const CreateInstitutionAdmin = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  firstName: z.string().min(6),
+  lastName: z.string().min(1),
+  institutionId: z.number().int(),
+})
+
 function serializeInstitution(inst: any) {
   // convert bigint id if present
   return {
@@ -17,42 +30,152 @@ function serializeInstitution(inst: any) {
     name: inst.name,
     code: inst.code,
     subdomain: inst.subdomain,
-    contact_email: inst.contact_email,
-    plan_id:
-      inst.plan_id == null
+    contactEmail: inst.contactEmail,
+    planId:
+      inst.planId == null
         ? null
-        : typeof inst.plan_id === 'bigint'
-          ? inst.plan_id.toString()
-          : inst.plan_id,
+        : typeof inst.planId === 'bigint'
+          ? inst.planId.toString()
+          : inst.planId,
     status: inst.status,
-    created_at: inst.created_at ?? null,
-    updated_at: inst.updated_at ?? null,
+    createdAt: inst.createdAt ?? null,
+    updatedAt: inst.updatedAt ?? null,
   };
 }
 
 export async function createInstitutionHandler(request: FastifyRequest, reply: FastifyReply) {
+  const logger = new Logger(request.log);
   try {
     const parsed = CreateInstitutionBody.safeParse(request.body);
     if (!parsed.success)
-      return reply.code(400).send({ error: 'Invalid request', details: parsed.error });
+      throw new ValidationError('Invalid request', parsed.error.issues);
 
     const { name, code, subdomain, contactEmail, planId } = parsed.data;
-    const prisma = (request as any).prisma;
+    const prisma = request.prisma;
+    const existing = await prisma.institution.findFirst({
+      where: {
+        OR: [
+          { code },
+          { subdomain: subdomain ?? undefined },
+        ],
+      },
+    });
 
-    const inst = await prisma.institutions.create({
+    if (existing) {
+      if (existing.code === code) {
+        throw new ConflictError('Institution with this code already exists');
+      }
+      if (existing.subdomain === subdomain) {
+        throw new ConflictError('Institution with this subdomain already exists');
+      }
+    }
+    const inst = await prisma.institution.create({
       data: {
         name,
         code,
         subdomain,
-        contact_email: contactEmail,
-        plan_id: planId ?? null,
+        contactEmail,
+        planId: planId ?? null,
         status: 'active',
       },
     });
 
+    logger.audit({
+      userId: (request as any).user?.sub,
+      action: 'CREATE_INSTITUTION',
+      resource: 'institutions',
+      resourceId: inst.id.toString(),
+      status: 'success',
+      ipAddress: request.ip,
+      userAgent: request.headers['user-agent'],
+    });
+
     return reply.code(201).send(serializeInstitution(inst));
-  } catch (err: any) {
-    request.server.log.error({ err }, 'createInstitutionHandler failed');
-    return reply.code(500).send({ error: 'Internal server error' });
+  } catch (error: any) {
+    logger.error('createInstitution failed', error as Error)
+    throw error;
+  }
+}
+
+// After creating institution
+export async function createInstitutionAdminHandler(request: FastifyRequest, reply: FastifyReply) {
+  const logger = new Logger(request.log);
+
+  try {
+    const currentUser = request.user;
+
+    if (!currentUser) {
+      throw new UnauthorizedError('Authentication required');
+    }
+
+    if (!currentUser.roles?.includes('Super Admin')) {
+      throw new ForbiddenError('Only Super Admin can create Institution Admins');
+    }
+    const parsed = CreateInstitutionAdmin.safeParse(request.body);
+
+    if (!parsed.success) throw new ValidationError('Invalid request', parsed.error.issues);
+
+    const { email, password, firstName, lastName, institutionId } = parsed.data;
+    const prisma = request.prisma;
+
+    // Create user
+    const passwordHash = await AuthService.hashPassword(password);
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        firstName: firstName ?? null,
+        lastName: lastName ?? null,
+        institutionId: institutionId,
+        status: 'active',
+        mustChangePassword: true,
+      },
+    });
+
+    // Find or create "Institution Admin" role for this institution
+    let institutionAdminRole = await prisma.role.findFirst({
+      where: {
+        name: 'Institution Admin',
+        institutionId: institutionId,
+        isSystemRole: false,
+      },
+    });
+
+    if (!institutionAdminRole) {
+      // Create role if it doesn't exist
+      institutionAdminRole = await prisma.role.create({
+        data: {
+          name: 'Institution Admin',
+          institutionId: institutionId,
+          isSystemRole: false,
+        },
+      });
+    }
+
+    // Assign role to user
+    await prisma.userRole.create({
+      data: {
+        userId: user.id,
+        roleId: institutionAdminRole.id,
+        assignedBy: BigInt(currentUser.sub),
+      },
+    });
+
+    logger.audit({
+      userId: currentUser.sub,
+      action: 'CREATE_INSTITUTION_ADMIN',
+      resource: 'users',
+      resourceId: user.id.toString(),
+      status: 'success',
+      metadata: { institutionId },
+    });
+
+    return reply.code(201).send({
+      message: 'Institution Admin created successfully',
+      user: Serializer.user(user),
+    });
+  } catch (error) {
+    logger.error('createInstitutionAdmin failed', error as Error);
+    throw error;
   }
 }
