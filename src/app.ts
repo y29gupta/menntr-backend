@@ -6,7 +6,7 @@ import mailerPlugin from './plugins/mailer';
 import jwtPlugin from './plugins/jwt';
 import adminRoutes from './routes/admin';
 import authRoutes from './routes/auth';
-import institutionRoutes from './routes/institutions';
+import institutionRoutes, { planRoutes } from './routes/institutions';
 import { errorHandler } from './middleware/errorHandler';
 import { config } from './config';
 import inviteMailer from './plugins/inviteMailer';
@@ -84,6 +84,7 @@ export function buildApp() {
   app.register(adminRoutes);
   app.register(authRoutes, { prefix: '/auth' });
   app.register(institutionRoutes);
+  app.register(planRoutes);
 
   // Health check endpoint
   app.get('/health', async () => {
