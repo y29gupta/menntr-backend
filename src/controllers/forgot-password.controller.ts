@@ -63,7 +63,7 @@ export async function validateForgotPasswordEmail(request: FastifyRequest, reply
 /* ------------------------------------------------------------------ */
 
 export async function sendForgotPasswordEmail(request: FastifyRequest, reply: FastifyReply) {
-  const emailService = new EmailService(request.server.mailer, request.server.inviteMailer);
+  const emailService = new EmailService(request.server.mailer);
   const logger = new Logger(request.log);
 
   const parsed = SendResetSchema.safeParse(request.body);
@@ -158,7 +158,7 @@ export async function verifyResetToken(request: FastifyRequest, reply: FastifyRe
 /* ------------------------------------------------------------------ */
 
 export async function resetPassword(request: FastifyRequest, reply: FastifyReply) {
-  const emailService = new EmailService(request.server.mailer, request.server.inviteMailer);
+  const emailService = new EmailService(request.server.mailer);
   const logger = new Logger(request.log);
 
   const parsed = ResetPasswordSchema.safeParse(request.body);
