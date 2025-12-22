@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { pagination } from 'prisma-extension-pagination';
 import { Pool } from 'pg';
 
 export default fp(async function prismaPlugin(fastify: FastifyInstance) {
@@ -19,7 +20,16 @@ export default fp(async function prismaPlugin(fastify: FastifyInstance) {
   });
 
   const adapter = new PrismaPg(pool);
-  const prisma = new PrismaClient({ adapter });
+  // const prisma = new PrismaClient({ adapter });
+
+  const prisma = new PrismaClient({ adapter }).$extends(
+    pagination({
+      pages: {
+        includePageCount: true,
+        limit: 10,
+      },
+    })
+  );
 
   // Decorate fastify
   fastify.decorate('prisma', prisma);
