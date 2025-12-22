@@ -8,6 +8,7 @@ const ConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 
   FRONTEND_URL: z.string().default('http://localhost:3000'),
+  RESET_PASSWORD_URL: z.string().default('/reset-password'),
   COOKIE_SECRET: z.string().min(32, 'Cookie secret must be at least 32 characters'),
 
   // JWT Configuration
@@ -21,6 +22,7 @@ const ConfigSchema = z.object({
 
   // Auth Configuration
   OTP_EXPIRY_MINUTES: z.string().default('15').transform(Number),
+  RESET_PASSWORD_EXPIRY_MINUTES: z.string().default('15').transform(Number),
   ONE_TIME_LINK_BASE: z.string().default('http://localhost:3000/auth/one-time-login'),
   BCRYPT_SALT_ROUNDS: z.string().default('12').transform(Number),
   ENABLE_SUPERADMIN_CREATION: z
@@ -89,12 +91,17 @@ export const config = {
 
   auth: {
     otpExpiryMinutes: env.OTP_EXPIRY_MINUTES,
+    resetTokenExpiryMinutes: env.RESET_PASSWORD_EXPIRY_MINUTES,
     oneTimeLinkBase: env.ONE_TIME_LINK_BASE,
     bcryptSaltRounds: env.BCRYPT_SALT_ROUNDS,
     allowSuperAdminCreation: env.ENABLE_SUPERADMIN_CREATION || !env.NODE_ENV.includes('production'),
   },
 
-  frontendUrl: env.FRONTEND_URL,
+  frontend: {
+    frontendUrl: env.FRONTEND_URL,
+    resetPasswordUrl: env.RESET_PASSWORD_URL,
+  },
+  
   cookieSecret: env.COOKIE_SECRET,
   
   database: {

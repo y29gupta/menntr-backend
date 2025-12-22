@@ -248,6 +248,86 @@ export class EmailService {
       throw new AppError('Failed to send system email', 500);
     }
   }
+
+  /**
+   * PASSWORD RESET EMAIL
+   * Uses ACS (DoNotReply@pathaxiom.com)
+   */
+  async sendPasswordReset(to: string, resetLink: string, name?: string): Promise<void> {
+    const expiryMinutes = config.auth.resetTokenExpiryMinutes;
+
+    const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
+      <h2>Password Reset Request</h2>
+
+      <p>Hi ${name || 'there'},</p>
+
+      <p>
+        We received a request to reset your MENNTR account password.
+      </p>
+
+      <p style="text-align: center; margin: 30px 0;">
+        <a href="${resetLink}"
+           style="
+             background: #667eea;
+             color: #ffffff;
+             padding: 12px 28px;
+             border-radius: 6px;
+             text-decoration: none;
+             font-weight: bold;
+           ">
+          Reset Password
+        </a>
+      </p>
+
+      <p style="color: #d32f2f;">
+        ⚠️ This link will expire in ${expiryMinutes} minutes.
+      </p>
+
+      <p>
+        If you did not request this, please ignore this email.
+      </p>
+
+      <p style="margin-top: 30px;">
+        — MENNTR Security Team
+      </p>
+    </div>
+  `;
+
+    try {
+      await this.sendSystemEmail(to, 'Reset your MENNTR password', html);
+    } catch (err) {
+      throw new AppError('Failed to send password reset email', 500);
+    }
+  }
+  /**
+   * PASSWORD CHANGED CONFIRMATION EMAIL
+   */
+  async sendPasswordChangedNotification(to: string): Promise<void> {
+    const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">
+      <h2>Password Updated Successfully</h2>
+
+      <p>
+        This is a confirmation that your MENNTR account password was changed.
+      </p>
+
+      <p>
+        If you did not perform this action, please contact support immediately.
+      </p>
+
+      <p style="margin-top: 30px;">
+        — MENNTR Security Team
+      </p>
+    </div>
+  `;
+
+    try {
+      await this.sendSystemEmail(to, 'Your MENNTR password was changed', html);
+    } catch (err) {
+      throw new AppError('Failed to send password change notification', 500);
+    }
+  }
 }
 
 /**

@@ -27,6 +27,7 @@ enum InstitutionStatus {
 enum TokenType {
   one_time_login
   refresh
+  password_reset
 }
 
 /**
