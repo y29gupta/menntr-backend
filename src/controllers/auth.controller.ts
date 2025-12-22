@@ -160,7 +160,7 @@ export async function generateInviteHandler(request: FastifyRequest, reply: Fast
 
     const { email, firstName, lastName, institutionId } = parsed.data;
     const prisma = request.prisma;
-    const emailService = new EmailService(request.server.mailer, request.server.inviteMailer);
+    const emailService = new EmailService(request.server.mailer);
     const currentUser = (request as any).user;
 
     logger.info('Generating invite', {

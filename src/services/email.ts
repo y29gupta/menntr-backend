@@ -17,7 +17,7 @@ interface InviteData {
 export class EmailService {
   constructor(
     private acsClient: EmailClient, // EXISTING (DoNotReply)
-    private inviteMailer: Transporter // SMTP (invite@)
+    // private inviteMailer: Transporter // SMTP (invite@)
   ) {}
 
   /**
@@ -200,12 +200,26 @@ export class EmailService {
         faculty: `Join ${data.institutionName || 'Your Institution'} on MENNTR`,
       };
 
-      await this.inviteMailer.sendMail({
-        from: config.email.inviteFromEmail, // invite@pathaxiom.com
-        to,
-        subject: subjectMap[type],
-        html,
-      });
+      // await this.inviteMailer.sendMail({
+      //   from: config.email.inviteFromEmail, // invite@pathaxiom.com
+      //   to,
+      //   subject: subjectMap[type],
+      //   html,
+      // });
+      const message = {
+        senderAddress: config.email.inviteFromEmail, // invite@pathaxiom.com
+        content: {
+          subject: subjectMap[type],
+          html,
+        },
+        recipients: {
+          to: [{ address: to }],
+        },
+        replyTo: [{ address: config.email.inviteFromEmail }],
+      };
+
+      const poller = await this.acsClient.beginSend(message);
+      await poller.pollUntilDone();
     } catch (err: any) {
       console.error('SMTP INVITE ERROR:', {
         message: err?.message,
