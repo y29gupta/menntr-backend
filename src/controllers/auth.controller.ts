@@ -124,9 +124,9 @@ export async function logoutHandler(request: FastifyRequest, reply: FastifyReply
     // Invalidate tokens in database
     if (payload?.sub) {
       const prisma = request.prisma;
-      await prisma.auth_tokens.updateMany({
-        where: { user_id: Number(payload.sub), used_at: null },
-        data: { used_at: new Date() },
+      await prisma.authToken.updateMany({
+        where: { userId: Number(payload.sub), usedAt: null },
+        data: { usedAt: new Date() },
       });
 
       logger.audit({
