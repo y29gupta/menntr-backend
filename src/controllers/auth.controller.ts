@@ -28,7 +28,7 @@ const ConsumeInviteSchema = z.object({
 
 const ChangePasswordSchema = z.object({
   newPassword: z.string().min(8, 'Password must be at least 8 characters'),
-  oldPassword: z.string().optional(),
+  confirmNewPassword: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
 export async function loginHandler(request: FastifyRequest, reply: FastifyReply) {
@@ -328,15 +328,24 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
   try {
     const parsed = ChangePasswordSchema.safeParse(request.body);
     if (!parsed.success) {
-      // FIXED: Use 'issues' instead of 'errors'
       throw new ValidationError('Invalid request', parsed.error.issues);
     }
 
-    const { newPassword, oldPassword } = parsed.data;
+    const { newPassword, confirmNewPassword } = parsed.data;
     const payload = (request as any).user;
 
     if (!payload) {
       throw new UnauthorizedError();
+    }
+
+    // ✅ Explicit confirm password validation
+    if (newPassword !== confirmNewPassword) {
+      throw new ValidationError('Passwords do not match', [
+        {
+          path: ['confirmNewPassword'],
+          message: 'Confirm password must match new password',
+        },
+      ]);
     }
 
     const prisma = request.prisma;
@@ -344,10 +353,15 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
 
     logger.info('Password change request', { userId });
 
-    const dbUser = await prisma.user.findUnique({ where: { id: userId } });
+    const dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
     if (!dbUser) {
       throw new NotFoundError('User not found');
     }
+
+    // Fetch roles for JWT
     const userWithRoles = await prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -359,17 +373,10 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
 
     const roles = Serializer.serializeRoles(userWithRoles);
 
-    // Verify old password if provided
-    if (oldPassword) {
-      const isValid = await AuthService.comparePassword(oldPassword, dbUser.passwordHash || '');
-      if (!isValid) {
-        logger.warn('Password change failed - invalid old password', { userId });
-        throw new UnauthorizedError('Invalid old password');
-      }
-    }
-
+    // 🔐 Hash new password
     const hashedPassword = await AuthService.hashPassword(newPassword);
 
+    // ✅ Update password
     await prisma.user.update({
       where: { id: userId },
       data: {
@@ -379,19 +386,25 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
       },
     });
 
-    // Invalidate all unused tokens
+    // 🔒 Invalidate all unused auth tokens
     await prisma.authToken.updateMany({
-      where: { userId: userId, usedAt: null },
-      data: { usedAt: new Date() },
+      where: {
+        userId,
+        usedAt: null,
+      },
+      data: {
+        usedAt: new Date(),
+      },
     });
 
+    // 🎟 Issue new JWT
     const jwtToken = AuthService.signJwt({
-      // FIXED: Renamed
       sub: payload.sub,
       email: payload.email,
       roles: roles.map((r: any) => r.name),
     });
 
+    // 📘 Audit log
     logger.audit({
       userId: payload.sub,
       action: 'CHANGE_PASSWORD',
@@ -402,9 +415,10 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
       userAgent: request.headers['user-agent'],
     });
 
-    return reply.send({ token: jwtToken }); // FIXED: Use renamed variable
+    return reply.send({ token: jwtToken });
   } catch (error) {
     logger.error('changePassword failed', error as Error);
     throw error;
   }
 }
+
