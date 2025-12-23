@@ -1,0 +1,102 @@
+import fastify from 'fastify';
+import cookie from '@fastify/cookie';
+import cors from '@fastify/cors';
+import prismaPlugin from './plugins/prisma';
+import mailerPlugin from './plugins/mailer';
+import jwtPlugin from './plugins/jwt';
+import adminRoutes from './routes/admin';
+import authRoutes from './routes/auth';
+import institutionRoutes, { planRoutes } from './routes/institutions';
+import { errorHandler } from './middleware/errorHandler';
+import { config } from './config';
+import inviteMailer from './plugins/inviteMailer';
+// import { requestUserPlugin } from './plugins/request-user-plugin';
+import authPlugin from './plugins/auth.plugin';
+
+export function buildApp() {
+  const app = fastify({
+    logger: {
+      level: config.isDevelopment ? 'debug' : 'info',
+      ...(config.isProduction && {
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            translateTime: 'HH:MM:ss Z',
+            ignore: 'pid,hostname',
+          },
+        },
+      }),
+    },
+  });
+
+  app.register(cors, {
+    origin: [config.frontendUrl, "https://menntr-frontend.netlify.app"],
+    credentials: true, // allow cookies
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
+  // Register cookie support
+  app.register(cookie, {
+    secret: config.cookieSecret,
+    hook: 'onRequest',
+    parseOptions: {},
+  });
+
+  // Register plugins
+  app.register(prismaPlugin);
+  app.register(mailerPlugin);
+  app.register(jwtPlugin);
+  app.register(inviteMailer);
+  // app.register(requestUserPlugin);
+  app.register(authPlugin);
+  // Request logging hook - track start time
+  app.addHook('onRequest', async (request) => {
+    (request as any).startTime = Date.now();
+    request.log.info(
+      {
+        type: 'REQUEST',
+        method: request.method,
+        url: request.url,
+        ip: request.ip,
+        userAgent: request.headers['user-agent'],
+      },
+      'Incoming request'
+    );
+  });
+
+  // Response logging hook - calculate response time
+  app.addHook('onResponse', async (request, reply) => {
+    const responseTime = Date.now() - ((request as any).startTime || Date.now());
+    request.log.info(
+      {
+        type: 'RESPONSE',
+        method: request.method,
+        url: request.url,
+        statusCode: reply.statusCode,
+        responseTime: `${responseTime}ms`,
+      },
+      'Request completed'
+    );
+  });
+
+  // Register routes
+  app.register(adminRoutes);
+  app.register(authRoutes, { prefix: '/auth' });
+  app.register(institutionRoutes);
+  app.register(planRoutes);
+
+  // Health check endpoint
+  app.get('/health', async () => {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+    };
+  });
+
+  // Global error handler
+  app.setErrorHandler(errorHandler);
+
+  return app;
+}
