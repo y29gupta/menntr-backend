@@ -123,11 +123,11 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
     const prisma = request.prisma;
 
     // Create user
-    const passwordHash = await AuthService.hashPassword(password);
+    // const passwordHash = await AuthService.hashPassword(password);
     const user = await prisma.user.create({
       data: {
         email,
-        passwordHash,
+        // passwordHash,
         firstName: firstName ?? null,
         lastName: lastName ?? null,
         institutionId: institutionId,
