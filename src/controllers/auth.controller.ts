@@ -201,7 +201,8 @@ export async function generateInviteHandler(request: FastifyRequest, reply: Fast
       },
     });
 
-    const link = `${config.auth.oneTimeLinkBase}?token=${rawToken}&email=${encodeURIComponent(email)}`;
+    // const link = `${config.auth.oneTimeLinkBase}?token=${rawToken}&email=${encodeURIComponent(email)}`;
+    const link = `${config.auth.oneTimeLinkBase}?token=${rawToken}`;
 
     try {
       await emailService.sendInvite(email, link, 'institution', {

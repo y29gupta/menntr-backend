@@ -17,9 +17,9 @@ const CreateInstitutionBody = z.object({
 
 const CreateInstitutionAdmin = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
-  firstName: z.string().min(6),
-  lastName: z.string().min(1),
+  password: z.string().min(8).optional(),
+  firstName: z.string().min(6).optional(),
+  lastName: z.string().min(1).optional(),
   institutionId: z.number().int(),
 });
 const GetPlanModulesParamsSchema = z.object({
