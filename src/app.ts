@@ -6,10 +6,12 @@ import mailerPlugin from './plugins/mailer';
 import jwtPlugin from './plugins/jwt';
 import adminRoutes from './routes/admin';
 import authRoutes from './routes/auth';
-import institutionRoutes from './routes/institutions';
+import institutionRoutes, { planRoutes } from './routes/institutions';
 import { errorHandler } from './middleware/errorHandler';
 import { config } from './config';
 import inviteMailer from './plugins/inviteMailer';
+// import { requestUserPlugin } from './plugins/request-user-plugin';
+import authPlugin from './plugins/auth.plugin';
 
 export function buildApp() {
   const app = fastify({
@@ -46,7 +48,8 @@ export function buildApp() {
   app.register(mailerPlugin);
   app.register(jwtPlugin);
   app.register(inviteMailer);
-
+  // app.register(requestUserPlugin);
+  app.register(authPlugin);
   // Request logging hook - track start time
   app.addHook('onRequest', async (request) => {
     (request as any).startTime = Date.now();
@@ -81,6 +84,7 @@ export function buildApp() {
   app.register(adminRoutes);
   app.register(authRoutes, { prefix: '/auth' });
   app.register(institutionRoutes);
+  app.register(planRoutes);
 
   // Health check endpoint
   app.get('/health', async () => {

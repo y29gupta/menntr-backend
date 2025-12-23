@@ -3,6 +3,7 @@ import jwt, { SignOptions, JwtPayload } from 'jsonwebtoken';
 import crypto from 'crypto';
 import { config } from '../config';
 import { UnauthorizedError, ValidationError } from '../utils/errors';
+import { AuthJwtPayload } from '../types/jwt';
 
 type JwtPayloadOrString = string | JwtPayload;
 
@@ -38,18 +39,24 @@ export class AuthService {
     return jwt.sign(payload, privateKey, options);
   }
 
-  static verifyJwt(token: string): JwtPayloadOrString {
+  static verifyJwt(token: string): AuthJwtPayload {
     const { publicKey, issuer, audience } = config.jwt;
 
     if (!publicKey) {
       throw new Error('JWT public key not configured');
     }
 
-    return jwt.verify(token, publicKey, {
+    const decoded = jwt.verify(token, publicKey, {
       algorithms: ['RS256'],
       issuer,
       audience,
-    }) as JwtPayloadOrString;
+    });
+
+    if (typeof decoded === 'string') {
+      throw new UnauthorizedError('Invalid token payload');
+    }
+
+    return decoded as AuthJwtPayload;
   }
 
   static sha256(input: string): string {

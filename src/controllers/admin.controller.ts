@@ -36,7 +36,7 @@ export async function createSuperAdmin(request: FastifyRequest, reply: FastifyRe
     const { email, password, firstName, lastName } = parsed.data;
     const prisma = request.prisma;
 
-    const existing = await prisma.users.findFirst({ where: { email } });
+    const existing = await prisma.user.findFirst({ where: { email } });
     if (existing) {
       logger.warn('Super admin creation failed - user exists', { email });
       throw new ConflictError('User already exists');
@@ -44,40 +44,50 @@ export async function createSuperAdmin(request: FastifyRequest, reply: FastifyRe
 
     const passwordHash = await AuthService.hashPassword(password);
 
-    const created = await prisma.users.create({
+    const created = await prisma.user.create({
       data: {
         email,
-        password_hash: passwordHash,
-        first_name: firstName ?? null,
-        last_name: lastName ?? null,
+        passwordHash,
+        firstName: firstName ?? null,
+        lastName: lastName ?? null,
         status: 'active',
-        must_change_password: false,
+        mustChangePassword: false,
       },
     });
 
     // Assign super admin role
     try {
-      const superRole = await prisma.roles.findFirst({
-        where: { is_system_role: true, name: 'Super Admin' },
+      const superRole = await prisma.role.findFirst({
+        where: { isSystemRole: true, name: 'Super Admin' },
       });
 
       if (superRole) {
-        await prisma.user_roles.create({
+        await prisma.userRole.create({
           data: {
-            user_id: created.id,
-            role_id: superRole.id,
-            assigned_by: created.id,
+            userId: created.id,
+            roleId: superRole.id,
+            assignedBy: created.id,
           },
         });
       }
     } catch (err) {
       logger.warn('Failed to auto-assign super role', { error: err });
     }
+    const userWithRoles = await prisma.user.findUnique({
+      where: { id: created.id },
+      include: {
+        roles: {
+          include: { role: true },
+        },
+      },
+    });
+
+    const roles = Serializer.serializeRoles(userWithRoles);
 
     const payload = {
       sub: Serializer.bigIntToString(created.id),
       email: created.email,
-      roles: ['superadmin'],
+      roles: roles.map((r: any) => r.name),
     };
     const jwtToken = AuthService.signJwt(payload); // FIXED: Renamed to avoid conflict
 

@@ -1,11 +1,10 @@
-import { PrismaClient } from '../generated/prisma/client';
-import type { EmailClient } from '@azure/communication-email';
 import 'fastify';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { PrismaClient } from '../generated/prisma/client';
+import type { EmailClient } from '@azure/communication-email';
 import type nodemailer from 'nodemailer';
+
 declare module 'fastify' {
   interface FastifyInstance {
-    authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     prisma: PrismaClient;
     inviteMailer: nodemailer.Transporter;
     mailer: EmailClient;
@@ -13,6 +12,10 @@ declare module 'fastify' {
 
   interface FastifyRequest {
     prisma: PrismaClient;
-    user?: any;
+    user?: {
+      sub: string;
+      email: string;
+      roles: string[];
+    };
   }
 }

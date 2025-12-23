@@ -17,8 +17,10 @@ export class CookieManager {
   static setAuthToken(reply: FastifyReply, token: string, maxAge?: number) {
     const cookieOptions: CookieOptions = {
       httpOnly: true, // Prevents JavaScript access (XSS protection)
-      secure: config.isProduction, // HTTPS only in production
-      sameSite: config.isProduction ? 'strict' : 'lax', // CSRF protection
+      // secure: config.isProduction, // HTTPS only in production
+      secure: false,
+      // sameSite: config.isProduction ? 'strict' : 'lax', // CSRF protection
+      sameSite: 'lax',
       maxAge: maxAge || config.jwt.expiresIn, // 7 days default
       path: '/',
       ...(config.isProduction && {
@@ -32,8 +34,10 @@ export class CookieManager {
   static setRefreshToken(reply: FastifyReply, refreshToken: string) {
     const cookieOptions: CookieOptions = {
       httpOnly: true,
-      secure: config.isProduction,
-      sameSite: config.isProduction ? 'strict' : 'lax',
+      // secure: config.isProduction,
+      secure: false,
+      // sameSite: config.isProduction ? 'strict' : 'lax',
+      sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30, // 30 days
       path: '/auth/refresh',
     };
