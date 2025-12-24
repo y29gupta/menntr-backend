@@ -249,104 +249,129 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
   }
 }
 
-export async function getInstitutionsHandler(request: FastifyRequest, reply: FastifyReply) {
-  try {
-    const prisma = (request as any).prisma;
+interface InstitutionQuery {
+  page?: string;
+  limit?: string;
+  search?: string;
 
-    const institutions = await prisma.institution.findMany({
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        contactEmail: true,
-        status: true,
-        planId: true,
-        createdAt: true,
-        plan: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
+  name?: string;
+  code?: string;
+  contactEmail?: string;
+  status?: string;
+  planCode?: string;
+}
+
+export async function getInstitutionsHandler(
+  request: FastifyRequest<{ Querystring: InstitutionQuery }>,
+  reply: FastifyReply
+) {
+  try {
+    const prisma = request.server.prisma;
+
+    const {
+      page = '1',
+      limit = '10',
+      search,
+
+      name,
+      code,
+      contactEmail,
+      status,
+      planCode,
+    } = request.query;
+
+    const pageNumber = Number(page);
+    const limitNumber = Number(limit);
+
+    if (
+      Number.isNaN(pageNumber) ||
+      Number.isNaN(limitNumber) ||
+      pageNumber < 1 ||
+      limitNumber < 1
+    ) {
+      return reply.code(400).send({
+        error: 'Invalid pagination parameters',
+      });
+    }
+
+    const where: any = {};
+
+    if (name) {
+      where.name = { contains: name, mode: 'insensitive' };
+    }
+
+    if (code) {
+      where.code = { contains: code, mode: 'insensitive' };
+    }
+
+    if (contactEmail) {
+      where.contactEmail = { contains: contactEmail, mode: 'insensitive' };
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (planCode) {
+      where.plan = {
+        code: {
+          contains: planCode,
+          mode: 'insensitive',
+        },
+      };
+    }
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { code: { contains: search, mode: 'insensitive' } },
+        { contactEmail: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [data, meta] = await prisma.institution
+      .paginate({
+        where,
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          contactEmail: true,
+          status: true,
+          createdAt: true,
+          plan: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+      })
+      .withPages({
+        page: pageNumber,
+        limit: limitNumber,
+      });
 
-    return reply.code(200).send({
-      count: institutions.length,
-      data: institutions,
+    return reply.send({
+      data,
+      meta: {
+        ...meta,
+        currentPageCount: data.length,
+      },
     });
   } catch (err) {
-    request.server.log.error({ err }, 'getInstitutionsHandler failed');
-    return reply.code(500).send({ error: 'Internal server error' });
+    request.log.error(err);
+    return reply.code(500).send({
+      error: 'Internal server error',
+    });
   }
 }
 
-// interface InstitutionQuery {
-//   page?: number;
-//   limit?: number;
-//   status?: string;
-//   planId?: number;
-//   search?: string;
-// }
-
-// export async function getInstitutionsHandler(
-//   request: FastifyRequest<{ Querystring: InstitutionQuery }>,
-//   reply: FastifyReply
-// ) {
-//   try {
-//     const prisma = request.server.prisma;
-
-//     const { page = 1, limit = 10, status, planId, search } = request.query;
-
-//     const where: any = {};
-
-//     // Column filters
-//     if (status) where.status = status;
-//     if (planId) where.planId = planId;
-
-//     // Global search
-//     if (search) {
-//       where.OR = [
-//         { name: { contains: search, mode: 'insensitive' } },
-//         { code: { contains: search, mode: 'insensitive' } },
-//         { contactEmail: { contains: search, mode: 'insensitive' } },
-//       ];
-//     }
-
-//     const [data, meta] = await prisma.institution
-//       .paginate({
-//         where,
-//         select: {
-//           id: true,
-//           name: true,
-//           code: true,
-//           contactEmail: true,
-//           status: true,
-//           planId: true,
-//           createdAt: true,
-//           plan: {
-//             select: { id: true, name: true, code: true },
-//           },
-//         },
-//         orderBy: { createdAt: 'desc' },
-//       })
-//       .withPages({ page, limit });
-
-//     return reply.send({ data, meta });
-//   } catch (err) {
-//     request.log.error(err);
-//     return reply.code(500).send({ error: 'Internal server error' });
-//   }
-// }
-
-export async function getPlanModulesHandler(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function getPlanModulesHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
     const parsed = GetPlanModulesParamsSchema.safeParse(request.params);
 
@@ -411,4 +436,3 @@ export async function getPlanModulesHandler(
     return reply.code(500).send({ error: 'Internal server error' });
   }
 }
-
