@@ -6,6 +6,8 @@ import { Logger } from '../utils/logger';
 import { ValidationError, UnauthorizedError, NotFoundError } from '../utils/errors';
 import { config } from '../config';
 import { TokenType } from '@prisma/client';
+import { Serializer } from '../utils/serializers';
+import { CookieManager } from '../utils/cookie';
 
 /* ------------------------------------------------------------------ */
 /* Schemas */
@@ -173,27 +175,35 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
 
   const record = await prisma.authToken.findFirst({
     where: {
-      tokenHash: tokenHash,
+      tokenHash,
       type: TokenType.one_time_login,
       usedAt: null,
       expiresAt: { gt: new Date() },
       user: { email },
     },
-    include: { user: true },
+    include: {
+      user: {
+        include: {
+          roles: { include: { role: true } },
+        },
+      },
+    },
   });
 
-  if (!record) {
+  if (!record || !record.user) {
     throw new UnauthorizedError('Invalid or expired link');
   }
 
   const passwordHash = await AuthService.hashPassword(newPassword);
 
+  // 🔒 Atomic update
   await prisma.$transaction([
     prisma.user.update({
       where: { id: record.userId },
       data: {
-        passwordHash: passwordHash,
+        passwordHash,
         mustChangePassword: false,
+        status: 'active',
       },
     }),
     prisma.authToken.updateMany({
@@ -205,6 +215,20 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
     }),
   ]);
 
+  // 🎭 Serialize roles
+  const roles = Serializer.serializeRoles(record.user);
+
+  // 🎟 Issue FINAL JWT
+  const jwtToken = AuthService.signJwt({
+    sub: record.userId.toString(),
+    email: record.user.email,
+    roles: roles.map((r: any) => r.name),
+  });
+
+  // 🍪 Set auth cookie
+  CookieManager.setAuthToken(reply, jwtToken);
+
+  // 📧 Notify user
   await emailService.sendPasswordChangedNotification(email);
 
   logger.audit({
@@ -216,5 +240,11 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
     userAgent: request.headers['user-agent'],
   });
 
-  return reply.send({ success: true });
+  // ✅ What frontend needs
+  return reply.send({
+    success: true,
+    roles,
+    mustChangePassword: false,
+  });
 }
+

@@ -84,7 +84,7 @@ model Feature {
   createdAt       DateTime @default(now()) @map("created_at")
 
   module       Module        @relation(fields: [moduleId], references: [id])
-  permissions  Permission[]
+  permissions  Permission[]  @relation("FeaturePermissions")
   planFeatures PlanFeature[]
 
   @@map("features")
@@ -150,15 +150,15 @@ model InstitutionModule {
 }
 
 model Permission {
-  id          Int      @id @default(autoincrement())
-  code        String   @unique
-  name        String
-  featureId   Int      @map("feature_id")
-  actionType  String?  @map("action_type")
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  featureCode    String   @map("feature_code")
+  permissionCode String   @map("permission_code")
+  permissionName String   @map("permission_name")
+  actionType     String?  @map("action_type")
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  feature Feature          @relation(fields: [featureId], references: [id])
+  feature Feature          @relation("FeaturePermissions", fields: [featureCode], references: [code])
   roles   RolePermission[]
 
   @@map("permissions")

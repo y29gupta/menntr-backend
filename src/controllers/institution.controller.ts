@@ -6,8 +6,9 @@ import { Logger } from '../utils/logger';
 import { AuthService } from '../services/auth';
 import { Serializer } from '../utils/serializers';
 import { CookieManager } from '../utils/cookie';
+import { provisionInstitution } from '../services/institution.service';
 
-const CreateInstitutionBody = z.object({
+export const CreateInstitutionBody = z.object({
   name: z.string().min(2),
   code: z.string().min(2),
   subdomain: z.string().optional().nullable(),
@@ -31,7 +32,7 @@ const UpdateInstitutionPutBody = CreateInstitutionBody;
 const InstitutionIdParamsSchema = z.object({
   id: z.coerce.number(),
 });
-function serializeInstitution(inst: any) {
+export function serializeInstitution(inst: any) {
   // convert bigint id if present
   return {
     id: typeof inst.id === 'bigint' ? inst.id.toString() : inst.id,
@@ -83,6 +84,8 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
         status: 'active',
       },
     });
+    await provisionInstitution(prisma, inst.id, inst.planId);
+    
 
     logger.audit({
       userId: (request as any).user?.sub,

@@ -8,7 +8,9 @@ import { CookieManager } from '../utils/cookie';
 import { ValidationError, UnauthorizedError, ForbiddenError, NotFoundError } from '../utils/errors';
 import { config } from '../config';
 import prisma from '../plugins/prisma';
+import { resolveUserPermissions } from '../services/authorization.service';
 
+import { getInstitutionAdminRole } from '../services/role.service';
 const LoginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
@@ -70,11 +72,13 @@ export async function loginHandler(request: FastifyRequest, reply: FastifyReply)
 
     const userId = Serializer.bigIntToString(user.id);
     const roles = Serializer.serializeRoles(user); // [{ id, name }]
+    const permissions = await resolveUserPermissions(prisma, user.id);
 
     const jwtToken = AuthService.signJwt({
       sub: userId,
       email: user.email,
       roles: roles.map((r: any) => r.name), // ONLY names in JWT
+      permissions,
     });
 
     CookieManager.setAuthToken(reply, jwtToken);
@@ -148,13 +152,16 @@ export async function logoutHandler(request: FastifyRequest, reply: FastifyReply
   }
 }
 
-export async function generateInviteHandler(request: FastifyRequest, reply: FastifyReply) {
+
+export async function generateInviteHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
   const logger = new Logger(request.log);
 
   try {
     const parsed = InviteSchema.safeParse(request.body);
     if (!parsed.success) {
-      // FIXED: Use 'issues' instead of 'errors'
       throw new ValidationError('Invalid request', parsed.error.issues);
     }
 
@@ -163,55 +170,81 @@ export async function generateInviteHandler(request: FastifyRequest, reply: Fast
     const emailService = new EmailService(request.server.mailer);
     const currentUser = (request as any).user;
 
+    if (!institutionId) {
+      throw new ValidationError('institutionId is required for invite');
+    }
+
     logger.info('Generating invite', {
       email,
       institutionId,
       invitedBy: currentUser?.sub,
     });
 
-    let user = await prisma.user.findFirst({
-      where: {
-        email,
-        institutionId: institutionId ?? undefined,
+let user = await prisma.user.findFirst({
+  where: { email, institutionId },
+});
+
+if (!user) {
+  user = await prisma.user.create({
+    data: {
+      email,
+      firstName: firstName ?? null,
+      lastName: lastName ?? null,
+      institutionId,
+      status: 'invited',
+      mustChangePassword: true,
+    },
+  });
+}
+
+// 🔑 Resolve institution admin role dynamically
+const institutionAdminRole = await prisma.role.findFirst({
+  where: {
+    institutionId,
+    isSystemRole: false,
+    parentId: null,
+  },
+});
+
+// 🔗 Assign role to user
+if (institutionAdminRole) {
+  await prisma.userRole.upsert({
+    where: {
+      userId_roleId: {
+        userId: user.id,
+        roleId: institutionAdminRole.id,
       },
-    });
+    },
+    update: {},
+    create: {
+      userId: user.id,
+      roleId: institutionAdminRole.id,
+      assignedBy: BigInt(currentUser?.sub),
+    },
+  });
+}
 
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          email,
-          firstName: firstName ?? null,
-          lastName: lastName ?? null,
-          institutionId: institutionId ?? null,
-          status: 'invited',
-          mustChangePassword: true,
-        },
-      });
-    }
 
+    // 🔐 Create invite token
     const { token: rawToken, hash: tokenHash } = AuthService.generateToken();
-    const expiresAt = new Date(Date.now() + config.auth.otpExpiryMinutes * 60 * 1000);
+    const expiresAt = new Date(
+      Date.now() + config.auth.otpExpiryMinutes * 60 * 1000
+    );
 
     await prisma.authToken.create({
       data: {
         userId: user.id,
-        tokenHash: tokenHash,
+        tokenHash,
         type: 'one_time_login',
-        expiresAt: expiresAt,
+        expiresAt,
       },
     });
 
-    // const link = `${config.auth.oneTimeLinkBase}?token=${rawToken}&email=${encodeURIComponent(email)}`;
     const link = `${config.auth.oneTimeLinkBase}?token=${rawToken}`;
 
-    try {
-      await emailService.sendInvite(email, link, 'institution', {
-        recipientName: `${firstName ?? ''} ${lastName ?? ''}`.trim(),
-      });
-      logger.info('Invite email sent successfully', { email, userId: user.id });
-    } catch (err) {
-      logger.error('Failed to send invite email', err as Error, { email });
-    }
+    await emailService.sendInvite(email, link, 'institution', {
+      recipientName: `${firstName ?? ''} ${lastName ?? ''}`.trim(),
+    });
 
     logger.audit({
       userId: currentUser?.sub,
@@ -230,6 +263,7 @@ export async function generateInviteHandler(request: FastifyRequest, reply: Fast
     throw error;
   }
 }
+
 
 export async function consumeInviteHandler(request: FastifyRequest, reply: FastifyReply) {
   const logger = new Logger(request.log);
@@ -294,10 +328,13 @@ export async function consumeInviteHandler(request: FastifyRequest, reply: Fasti
 
     if (user.mustChangePassword) {
       const roles = Serializer.serializeRoles(user);
+      const permissions = await resolveUserPermissions(prisma, user.id);
+
       const tempToken = AuthService.signJwt({
         sub: userId,
         email: user.email,
         roles: roles.map((r: any) => r.name),
+        permissions,
         temp: true,
         mustChangePassword: true,
       });
@@ -322,7 +359,10 @@ export async function consumeInviteHandler(request: FastifyRequest, reply: Fasti
   }
 }
 
-export async function changePasswordHandler(request: FastifyRequest, reply: FastifyReply) {
+export async function changePasswordHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
   const logger = new Logger(request.log);
 
   try {
@@ -338,7 +378,6 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
       throw new UnauthorizedError();
     }
 
-    // ✅ Explicit confirm password validation
     if (newPassword !== confirmNewPassword) {
       throw new ValidationError('Passwords do not match', [
         {
@@ -353,58 +392,49 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
 
     logger.info('Password change request', { userId });
 
-    const dbUser = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!dbUser) {
-      throw new NotFoundError('User not found');
-    }
-
-    // Fetch roles for JWT
     const userWithRoles = await prisma.user.findUnique({
       where: { id: userId },
       include: {
-        roles: {
-          include: { role: true },
-        },
+        roles: { include: { role: true } },
       },
     });
 
+    if (!userWithRoles) {
+      throw new NotFoundError('User not found');
+    }
+
     const roles = Serializer.serializeRoles(userWithRoles);
 
-    // 🔐 Hash new password
-    const hashedPassword = await AuthService.hashPassword(newPassword);
+    // 🔐 Hash password
+    const passwordHash = await AuthService.hashPassword(newPassword);
 
-    // ✅ Update password
+    // ✅ Update user
     await prisma.user.update({
       where: { id: userId },
       data: {
-        passwordHash: hashedPassword,
+        passwordHash,
         mustChangePassword: false,
         status: 'active',
       },
     });
 
-    // 🔒 Invalidate all unused auth tokens
+    // 🔒 Invalidate all tokens
     await prisma.authToken.updateMany({
-      where: {
-        userId,
-        usedAt: null,
-      },
-      data: {
-        usedAt: new Date(),
-      },
+      where: { userId, usedAt: null },
+      data: { usedAt: new Date() },
     });
-
-    // 🎟 Issue new JWT
-    const jwtToken = AuthService.signJwt({
+    const permissions = await resolveUserPermissions(prisma, userId);
+    // 🎟 FINAL JWT
+    const finalJwt = AuthService.signJwt({
       sub: payload.sub,
       email: payload.email,
       roles: roles.map((r: any) => r.name),
+      permissions,
     });
 
-    // 📘 Audit log
+    // 🍪 SET COOKIE (IMPORTANT)
+    CookieManager.setAuthToken(reply, finalJwt);
+
     logger.audit({
       userId: payload.sub,
       action: 'CHANGE_PASSWORD',
@@ -415,10 +445,15 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
       userAgent: request.headers['user-agent'],
     });
 
-    return reply.send({ token: jwtToken });
+    // ✅ NO TOKEN IN RESPONSE
+    return reply.send({
+      success: true,
+      message: 'Password updated successfully',
+    });
   } catch (error) {
     logger.error('changePassword failed', error as Error);
     throw error;
   }
 }
+
 
