@@ -27,6 +27,7 @@ enum InstitutionStatus {
 enum TokenType {
   one_time_login
   refresh
+  password_reset
 }
 
 /**
@@ -83,7 +84,7 @@ model Feature {
   createdAt       DateTime @default(now()) @map("created_at")
 
   module       Module        @relation(fields: [moduleId], references: [id])
-  permissions  Permission[]
+  permissions  Permission[]  @relation("FeaturePermissions")
   planFeatures PlanFeature[]
 
   @@map("features")
@@ -149,34 +150,41 @@ model InstitutionModule {
 }
 
 model Permission {
-  id          Int      @id @default(autoincrement())
-  code        String   @unique
-  name        String
-  featureId   Int      @map("feature_id")
-  actionType  String?  @map("action_type")
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id             Int      @id @default(autoincrement())
+  featureCode    String   @map("feature_code")
+  permissionCode String   @map("permission_code")
+  permissionName String   @map("permission_name")
+  actionType     String?  @map("action_type")
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  feature Feature          @relation(fields: [featureId], references: [id])
+  feature Feature          @relation("FeaturePermissions", fields: [featureCode], references: [code])
   roles   RolePermission[]
 
   @@map("permissions")
 }
 
 model Role {
-  id            Int      @id @default(autoincrement())
-  name          String
-  institutionId Int?     @map("institution_id")
-  parentId      Int?     @map("parent_id")
-  isSystemRole  Boolean  @default(false) @map("is_system_role")
-  description   String?
-  createdAt     DateTime @default(now()) @map("created_at")
+  id   Int    @id @default(autoincrement())
+  name String
 
-  institution Institution?     @relation(fields: [institutionId], references: [id])
-  parent      Role?            @relation("RoleTree", fields: [parentId], references: [id])
-  children    Role[]           @relation("RoleTree")
+  institutionId   Int? @map("institution_id")
+  parentId        Int? @map("parent_id")
+  roleHierarchyId Int? @map("role_hierarchy_id") // 👈 MUST EXIST
+
+  isSystemRole Boolean @default(false) @map("is_system_role")
+
+  institution Institution? @relation(fields: [institutionId], references: [id])
+  parent      Role?        @relation("RoleParent", fields: [parentId], references: [id])
+  children    Role[]       @relation("RoleParent")
+
+  hierarchy RoleHierarchy? @relation(fields: [roleHierarchyId], references: [id])
+
   users       UserRole[]
   permissions RolePermission[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("roles")
 }
@@ -240,4 +248,19 @@ model AuthToken {
   user User @relation(fields: [userId], references: [id])
 
   @@map("auth_tokens")
+}
+
+model RoleHierarchy {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+  level       Int
+  active      Boolean @default(true)
+
+  roles Role[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("role_hierarchy")
 }

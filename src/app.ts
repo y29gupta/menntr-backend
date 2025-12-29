@@ -12,6 +12,9 @@ import { config } from './config';
 import inviteMailer from './plugins/inviteMailer';
 // import { requestUserPlugin } from './plugins/request-user-plugin';
 import authPlugin from './plugins/auth.plugin';
+import { forgotPasswordRoutes } from './routes/forgot-password';
+import { departmentRoutes } from './routes/department.routes';
+import { organizationRoutes } from './routes/organization.routes';
 
 export function buildApp() {
   const app = fastify({
@@ -30,7 +33,7 @@ export function buildApp() {
   });
 
   app.register(cors, {
-    origin: [config.frontendUrl, "https://menntr-frontend.netlify.app"],
+    origin: [config.frontend.frontendUrl, "https://menntr-frontend.netlify.app"],
     credentials: true, // allow cookies
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -85,7 +88,9 @@ export function buildApp() {
   app.register(authRoutes, { prefix: '/auth' });
   app.register(institutionRoutes);
   app.register(planRoutes);
-
+  app.register(forgotPasswordRoutes);
+  app.register(departmentRoutes);
+  app.register(organizationRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {
