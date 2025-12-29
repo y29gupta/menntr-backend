@@ -165,19 +165,26 @@ model Permission {
 }
 
 model Role {
-  id            Int      @id @default(autoincrement())
-  name          String
-  institutionId Int?     @map("institution_id")
-  parentId      Int?     @map("parent_id")
-  isSystemRole  Boolean  @default(false) @map("is_system_role")
-  description   String?
-  createdAt     DateTime @default(now()) @map("created_at")
+  id   Int    @id @default(autoincrement())
+  name String
 
-  institution Institution?     @relation(fields: [institutionId], references: [id])
-  parent      Role?            @relation("RoleTree", fields: [parentId], references: [id])
-  children    Role[]           @relation("RoleTree")
+  institutionId   Int? @map("institution_id")
+  parentId        Int? @map("parent_id")
+  roleHierarchyId Int? @map("role_hierarchy_id") // 👈 MUST EXIST
+
+  isSystemRole Boolean @default(false) @map("is_system_role")
+
+  institution Institution? @relation(fields: [institutionId], references: [id])
+  parent      Role?        @relation("RoleParent", fields: [parentId], references: [id])
+  children    Role[]       @relation("RoleParent")
+
+  hierarchy RoleHierarchy? @relation(fields: [roleHierarchyId], references: [id])
+
   users       UserRole[]
   permissions RolePermission[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("roles")
 }
@@ -241,4 +248,19 @@ model AuthToken {
   user User @relation(fields: [userId], references: [id])
 
   @@map("auth_tokens")
+}
+
+model RoleHierarchy {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+  level       Int
+  active      Boolean @default(true)
+
+  roles Role[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("role_hierarchy")
 }

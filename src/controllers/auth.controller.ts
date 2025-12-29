@@ -14,7 +14,9 @@ import { getInstitutionAdminRole } from '../services/role.service';
 const LoginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
+ institutionCode: z.string().optional(),
 });
+
 
 const InviteSchema = z.object({
   email: z.string().email('Invalid email format'),
@@ -24,16 +26,19 @@ const InviteSchema = z.object({
 });
 
 const ConsumeInviteSchema = z.object({
-  email: z.string().email('Invalid email format'),
-  token: z.string().min(1, 'Token is required'),
+  token: z.string().min(20),
 });
+
 
 const ChangePasswordSchema = z.object({
   newPassword: z.string().min(8, 'Password must be at least 8 characters'),
   confirmNewPassword: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
-export async function loginHandler(request: FastifyRequest, reply: FastifyReply) {
+export async function loginHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
   const logger = new Logger(request.log);
 
   try {
@@ -42,13 +47,100 @@ export async function loginHandler(request: FastifyRequest, reply: FastifyReply)
       throw new ValidationError('Invalid request', parsed.error.issues);
     }
 
-    const { email, password } = parsed.data;
+    const { email, password, institutionCode } = parsed.data;
     const prisma = request.prisma;
 
-    logger.info('Login attempt', { email, ip: request.ip });
+    logger.info('Login attempt', {
+      email,
+      institutionCode: institutionCode ?? 'SUPER_ADMIN',
+      ip: request.ip,
+    });
 
-    const user = await prisma.user.findFirst({
-      where: { email },
+    /**
+     * ====================================================
+     * 1️⃣ SUPER ADMIN LOGIN (NO institutionCode)
+     * ====================================================
+     */
+    if (!institutionCode) {
+      const user = await prisma.user.findFirst({
+        where: {
+          email,
+          institutionId: null,
+          status: 'active',
+        },
+        include: {
+          roles: {
+            include: { role: true },
+          },
+        },
+      });
+
+      if (!user || !user.passwordHash) {
+        throw new UnauthorizedError('Invalid credentials');
+      }
+
+      const valid = await AuthService.comparePassword(
+        password,
+        user.passwordHash
+      );
+
+      if (!valid) {
+        throw new UnauthorizedError('Invalid credentials');
+      }
+
+      const roles = Serializer.serializeRoles(user);
+
+      const isSuperAdmin = roles.some(
+        (r: any) => r.name === 'Super Admin'
+      );
+
+      if (!isSuperAdmin) {
+        throw new ForbiddenError('Not a super admin account');
+      }
+
+      const userId = Serializer.bigIntToString(user.id);
+      const permissions = await resolveUserPermissions(prisma, user.id);
+
+      const token = AuthService.signJwt({
+        sub: userId,
+        email: user.email,
+        roles: roles.map((r: any) => r.name),
+        permissions,
+        isSuperAdmin: true,
+      });
+
+      CookieManager.setAuthToken(reply, token);
+
+      return reply.send(
+        Serializer.authResponse(true, {
+          id: userId,
+          email: user.email,
+          roles,
+          isSuperAdmin: true,
+        })
+      );
+    }
+
+    /**
+     * ====================================================
+     * 2️⃣ INSTITUTION USER LOGIN
+     * ====================================================
+     */
+    const institution = await prisma.institution.findUnique({
+      where: { code: institutionCode },
+    });
+
+    if (!institution) {
+      throw new UnauthorizedError('Invalid institution code');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: {
+        email_institutionId: {
+          email,
+          institutionId: institution.id,
+        },
+      },
       include: {
         roles: {
           include: { role: true },
@@ -60,9 +152,12 @@ export async function loginHandler(request: FastifyRequest, reply: FastifyReply)
       throw new UnauthorizedError('Invalid credentials');
     }
 
-    const isValidPassword = await AuthService.comparePassword(password, user.passwordHash);
+    const valid = await AuthService.comparePassword(
+      password,
+      user.passwordHash
+    );
 
-    if (!isValidPassword) {
+    if (!valid) {
       throw new UnauthorizedError('Invalid credentials');
     }
 
@@ -71,51 +166,34 @@ export async function loginHandler(request: FastifyRequest, reply: FastifyReply)
     }
 
     const userId = Serializer.bigIntToString(user.id);
-    const roles = Serializer.serializeRoles(user); // [{ id, name }]
+    const roles = Serializer.serializeRoles(user);
     const permissions = await resolveUserPermissions(prisma, user.id);
 
-    const jwtToken = AuthService.signJwt({
+    const token = AuthService.signJwt({
       sub: userId,
       email: user.email,
-      roles: roles.map((r: any) => r.name), // ONLY names in JWT
+      institutionId: institution.id,
+      roles: roles.map((r: any) => r.name),
       permissions,
     });
 
-    CookieManager.setAuthToken(reply, jwtToken);
-
-    prisma.user
-      .update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date() },
-      })
-      .catch(() => null);
-
-    logger.audit({
-      userId,
-      action: 'LOGIN',
-      resource: 'auth',
-      status: 'success',
-      ipAddress: request.ip,
-      userAgent: request.headers['user-agent'],
-    });
+    CookieManager.setAuthToken(reply, token);
 
     return reply.send(
-      Serializer.authResponse(
-        true,
-        {
-          id: userId,
-          email: user.email,
-          institutionId: user.institution_id,
-          roles, // clean roles array
-        },
-        !!user.must_change_password
-      )
+      Serializer.authResponse(true, {
+        id: userId,
+        email: user.email,
+        institutionId: institution.id,
+        roles,
+      })
     );
   } catch (error) {
-    logger.error('Login failed', error as Error, { ip: request.ip });
+    logger.error('Login failed', error as Error);
     throw error;
   }
 }
+
+
 
 export async function logoutHandler(request: FastifyRequest, reply: FastifyReply) {
   const logger = new Logger(request.log);
@@ -180,52 +258,56 @@ export async function generateInviteHandler(
       invitedBy: currentUser?.sub,
     });
 
-let user = await prisma.user.findFirst({
-  where: { email, institutionId },
-});
+    // --------------------------------------------------
+    // 1️⃣ Find or create user
+    // --------------------------------------------------
+    let user = await prisma.user.findFirst({
+      where: { email, institutionId },
+    });
 
-if (!user) {
-  user = await prisma.user.create({
-    data: {
-      email,
-      firstName: firstName ?? null,
-      lastName: lastName ?? null,
-      institutionId,
-      status: 'invited',
-      mustChangePassword: true,
-    },
-  });
-}
+    const userWasExisting = !!user;
 
-// 🔑 Resolve institution admin role dynamically
-const institutionAdminRole = await prisma.role.findFirst({
-  where: {
-    institutionId,
-    isSystemRole: false,
-    parentId: null,
-  },
-});
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email,
+          firstName: firstName ?? null,
+          lastName: lastName ?? null,
+          institutionId,
+          status: 'invited',
+          mustChangePassword: true,
+        },
+      });
+    }
 
-// 🔗 Assign role to user
-if (institutionAdminRole) {
-  await prisma.userRole.upsert({
-    where: {
-      userId_roleId: {
-        userId: user.id,
-        roleId: institutionAdminRole.id,
-      },
-    },
-    update: {},
-    create: {
-      userId: user.id,
-      roleId: institutionAdminRole.id,
-      assignedBy: BigInt(currentUser?.sub),
-    },
-  });
-}
+    // --------------------------------------------------
+    // 2️⃣ Assign default institution role ONLY if new user
+    // --------------------------------------------------
+    if (!userWasExisting) {
+      const institutionAdminRole = await prisma.role.findFirst({
+        where: {
+          institutionId,
+          isSystemRole: false,
+          parentId: null,
+        },
+      });
 
+      if (!institutionAdminRole) {
+        throw new Error('Institution admin role not configured');
+      }
 
-    // 🔐 Create invite token
+      await prisma.userRole.create({
+        data: {
+          userId: user.id,
+          roleId: institutionAdminRole.id,
+          assignedBy: BigInt(currentUser?.sub),
+        },
+      });
+    }
+
+    // --------------------------------------------------
+    // 3️⃣ Create one-time invite token
+    // --------------------------------------------------
     const { token: rawToken, hash: tokenHash } = AuthService.generateToken();
     const expiresAt = new Date(
       Date.now() + config.auth.otpExpiryMinutes * 60 * 1000
@@ -265,99 +347,76 @@ if (institutionAdminRole) {
 }
 
 
-export async function consumeInviteHandler(request: FastifyRequest, reply: FastifyReply) {
+
+export async function consumeInviteHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
   const logger = new Logger(request.log);
 
-  try {
-    const parsed = ConsumeInviteSchema.safeParse(request.body);
-    if (!parsed.success) {
-      // FIXED: Use 'issues' instead of 'errors'
-      throw new ValidationError('Invalid request', parsed.error.issues);
-    }
+  const parsed = ConsumeInviteSchema.safeParse(request.body);
+  if (!parsed.success) {
+    throw new ValidationError('Invalid request', parsed.error.issues);
+  }
 
-    const { email, token } = parsed.data;
-    const prisma = request.prisma;
-    const tokenHash = AuthService.sha256(token);
-    const now = new Date();
+  const { token } = parsed.data;
+  const prisma = request.prisma;
+  const tokenHash = AuthService.sha256(token);
 
-    logger.info('Consuming invite', { email, ip: request.ip });
-
-    const tokenRec = await prisma.authToken.findFirst({
-      where: {
-        tokenHash: tokenHash,
-        type: 'one_time_login',
-        usedAt: null,
-        expiresAt: { gt: now },
-      },
-    });
-
-    if (!tokenRec) {
-      logger.warn('Invalid or expired invite token', { email, ip: request.ip });
-      throw new UnauthorizedError('Invalid or expired invitation link');
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: tokenRec.userId },
-      include: {
-        roles: {
-          include: { role: true },
+  const tokenRec = await prisma.authToken.findFirst({
+    where: {
+      tokenHash,
+      type: 'one_time_login',
+      usedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    include: {
+      user: {
+        include: {
+          roles: { include: { role: true } },
         },
       },
-    });
-    if (!user || user.email !== email) {
-      logger.warn('Token/email mismatch', { email, ip: request.ip });
-      throw new UnauthorizedError('Invalid token or email');
-    }
+    },
+  });
 
-    // Mark all unused tokens for this user as used
-    await prisma.authToken.updateMany({
-      where: { userId: user.id, usedAt: null },
-      data: { usedAt: new Date() },
-    });
-
-    const userId = Serializer.bigIntToString(user.id);
-
-    logger.audit({
-      userId,
-      action: 'CONSUME_INVITE',
-      resource: 'auth',
-      status: 'success',
-      ipAddress: request.ip,
-      userAgent: request.headers['user-agent'],
-    });
-
-    if (user.mustChangePassword) {
-      const roles = Serializer.serializeRoles(user);
-      const permissions = await resolveUserPermissions(prisma, user.id);
-
-      const tempToken = AuthService.signJwt({
-        sub: userId,
-        email: user.email,
-        roles: roles.map((r: any) => r.name),
-        permissions,
-        temp: true,
-        mustChangePassword: true,
-      });
-      return reply.send({
-        token: tempToken,
-        mustChangePassword: true,
-      });
-    }
-    const roles = Serializer.serializeRoles(user);
-    const jwtToken = AuthService.signJwt({
-      sub: userId,
-      email: user.email,
-      roles: roles.map((r: any) => r.name),
-    }); // FIXED: Renamed
-    return reply.send({
-      token: jwtToken,
-      mustChangePassword: false,
-    });
-  } catch (error) {
-    logger.error('consumeInvite failed', error as Error);
-    throw error;
+  if (!tokenRec || !tokenRec.user) {
+    throw new UnauthorizedError('Invalid or expired invitation link');
   }
+
+  // mark token as used
+await prisma.authToken.updateMany({
+  where: {
+    userId: tokenRec.userId,
+    usedAt: null,
+  },
+  data: { usedAt: new Date() },
+});
+
+
+  const user = tokenRec.user;
+  const roles = Serializer.serializeRoles(user);
+  const permissions = await resolveUserPermissions(prisma, user.id);
+
+  const jwtPayload: any = {
+    sub: user.id.toString(),
+    email: user.email,
+    roles: roles.map((r: any) => r.name),
+    permissions,
+  };
+
+  if (user.mustChangePassword) {
+    jwtPayload.temp = true;
+    jwtPayload.mustChangePassword = true;
+  }
+
+  const jwt = AuthService.signJwt(jwtPayload);
+
+  return reply.send({
+    token: jwt,
+    mustChangePassword: user.mustChangePassword,
+  });
 }
+
 
 export async function changePasswordHandler(
   request: FastifyRequest,

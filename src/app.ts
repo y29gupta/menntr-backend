@@ -13,6 +13,8 @@ import inviteMailer from './plugins/inviteMailer';
 // import { requestUserPlugin } from './plugins/request-user-plugin';
 import authPlugin from './plugins/auth.plugin';
 import { forgotPasswordRoutes } from './routes/forgot-password';
+import { departmentRoutes } from './routes/department.routes';
+import { organizationRoutes } from './routes/organization.routes';
 
 export function buildApp() {
   const app = fastify({
@@ -87,6 +89,8 @@ export function buildApp() {
   app.register(institutionRoutes);
   app.register(planRoutes);
   app.register(forgotPasswordRoutes);
+  app.register(departmentRoutes);
+  app.register(organizationRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {
