@@ -33,14 +33,8 @@ export async function getDepartments(
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
 
-        // ✅ Exclude system/template roles
-        code: { not: null },
-
-        // ✅ Allow both categorized & independent departments
-        OR: [
-          { parentId: null },        // Independent department
-          { parentId: { not: null } } // Under a category
-        ],
+        // ✅ THIS is the correct filter
+        isSystemRole: false,
 
         name: { contains: search, mode: 'insensitive' },
       },
@@ -59,13 +53,14 @@ export async function getDepartments(
       where: {
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
-        code: { not: null },
+        isSystemRole: false,
       },
     }),
   ]);
 
   return { rows, total };
 }
+
 
 
 /**
