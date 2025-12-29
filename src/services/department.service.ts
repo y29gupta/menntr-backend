@@ -14,11 +14,11 @@ export interface UpdateDepartmentInput {
   name?: string;
   code?: string;
   categoryId?: number | null;
-  hodUserId?: number;
+  hodUserId?: number | null;
 }
 
 /**
- * List departments
+ * LIST DEPARTMENTS
  */
 export async function getDepartments(
   prisma: PrismaClient,
@@ -31,12 +31,12 @@ export async function getDepartments(
     prisma.role.findMany({
       where: {
         institutionId,
-        roleHierarchyId: 3,
-        isSystemRole: false, // ✅ exclude system roles
+        roleHierarchyId: DEPARTMENT_LEVEL,
+        code: { not: null }, // ✅ EXCLUDE SYSTEM ROLES
         name: { contains: search, mode: 'insensitive' },
       },
       include: {
-        parent: true, // category
+        parent: true, // Category
         users: {
           include: { user: true }, // HOD
         },
@@ -48,8 +48,8 @@ export async function getDepartments(
     prisma.role.count({
       where: {
         institutionId,
-        roleHierarchyId: 3,
-        isSystemRole: false, // ✅ count only real departments
+        roleHierarchyId: DEPARTMENT_LEVEL,
+        code: { not: null }, // ✅ COUNT ONLY REAL DEPARTMENTS
       },
     }),
   ]);
@@ -57,9 +57,8 @@ export async function getDepartments(
   return { rows, total };
 }
 
-
 /**
- * Create department
+ * CREATE DEPARTMENT
  */
 export async function createDepartment(
   prisma: PrismaClient,
@@ -67,14 +66,14 @@ export async function createDepartment(
   input: CreateDepartmentInput
 ) {
   return prisma.$transaction(async (tx) => {
-    // Validate category
+    // Validate category if provided
     if (input.categoryId) {
       const category = await tx.role.findFirst({
         where: {
           id: input.categoryId,
           institutionId,
           roleHierarchyId: CATEGORY_LEVEL,
-          isSystemRole: false,
+          code: { not: null },
         },
       });
 
@@ -83,12 +82,11 @@ export async function createDepartment(
       }
     }
 
-    // Prevent duplicate code
+    // Prevent duplicate department code
     const exists = await tx.role.findFirst({
       where: {
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
-        isSystemRole: false,
         code: input.code,
       },
     });
@@ -104,11 +102,11 @@ export async function createDepartment(
         institutionId,
         parentId: input.categoryId ?? null,
         roleHierarchyId: DEPARTMENT_LEVEL,
-        isSystemRole: false,
       },
     });
 
-    if (input.hodUserId !== undefined) {
+    // Assign HOD
+    if (input.hodUserId) {
       const hod = await tx.user.findFirst({
         where: {
           id: BigInt(input.hodUserId),
@@ -132,9 +130,8 @@ export async function createDepartment(
   });
 }
 
-
 /**
- * Update department
+ * UPDATE DEPARTMENT
  */
 export async function updateDepartment(
   prisma: PrismaClient,
@@ -148,7 +145,7 @@ export async function updateDepartment(
         id: departmentId,
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
-        isSystemRole: false,
+        code: { not: null },
       },
     });
 
@@ -156,31 +153,14 @@ export async function updateDepartment(
       throw new Error('Department not found');
     }
 
-    // ✅ 1️⃣ Prevent duplicate department code
-    if (input.code) {
-      const exists = await tx.role.findFirst({
-        where: {
-          institutionId,
-          roleHierarchyId: DEPARTMENT_LEVEL,
-          isSystemRole: false,
-          code: input.code,
-          id: { not: departmentId }, // 👈 exclude current department
-        },
-      });
-
-      if (exists) {
-        throw new Error('Department code already exists');
-      }
-    }
-
-    // ✅ 2️⃣ Validate category if provided
+    // Validate category
     if (input.categoryId !== undefined && input.categoryId !== null) {
       const category = await tx.role.findFirst({
         where: {
           id: input.categoryId,
           institutionId,
           roleHierarchyId: CATEGORY_LEVEL,
-          isSystemRole: false,
+          code: { not: null },
         },
       });
 
@@ -189,7 +169,22 @@ export async function updateDepartment(
       }
     }
 
-    // ✅ 3️⃣ Update department
+    // Prevent duplicate code on update
+    if (input.code) {
+      const exists = await tx.role.findFirst({
+        where: {
+          institutionId,
+          roleHierarchyId: DEPARTMENT_LEVEL,
+          code: input.code,
+          id: { not: departmentId },
+        },
+      });
+
+      if (exists) {
+        throw new Error('Department code already exists');
+      }
+    }
+
     const updated = await tx.role.update({
       where: { id: departmentId },
       data: {
@@ -201,7 +196,7 @@ export async function updateDepartment(
       },
     });
 
-    // ✅ 4️⃣ Update HOD
+    // Update HOD
     if (input.hodUserId !== undefined) {
       await tx.userRole.deleteMany({
         where: { roleId: departmentId },
@@ -231,5 +226,3 @@ export async function updateDepartment(
     return updated;
   });
 }
-
-

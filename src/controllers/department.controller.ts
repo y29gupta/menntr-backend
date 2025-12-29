@@ -8,8 +8,8 @@ import {
   createDepartment,
   updateDepartment,
 } from '../services/department.service';
-import { ValidationError, ForbiddenError } from '../utils/errors';
 import { Serializer } from '../utils/serializers';
+import { ValidationError, ForbiddenError } from '../utils/errors';
 
 export async function listDepartments(
   request: FastifyRequest,
@@ -37,30 +37,27 @@ export async function listDepartments(
     search
   );
 
-  reply.send({
-    total,
-    page: Number(page),
-    limit: Number(limit),
-    data: rows.map((d) => ({
-      id: d.id,
-      name: d.name,
-      code: d.code,
-      category: d.parent
-        ? { id: d.parent.id, name: d.parent.name }
-        : null,
-      hod:
-        d.users.length > 0
-          ? {
-              id: Serializer.bigIntToString(d.users[0].user.id),
-              name: `${d.users[0].user.firstName ?? ''} ${
-                d.users[0].user.lastName ?? ''
-              }`.trim(),
-            }
-          : null,
-      createdAt: d.createdAt,
-      updatedAt: d.updatedAt,
-    })),
-  });
+  const data = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    code: r.code,
+    category: r.parent
+      ? { id: r.parent.id, name: r.parent.name }
+      : null,
+    hod: r.users.length
+      ? {
+          id: Serializer.bigIntToString(r.users[0].user.id),
+          name: `${r.users[0].user.firstName ?? ''} ${
+            r.users[0].user.lastName ?? ''
+          }`.trim(),
+          email: r.users[0].user.email,
+        }
+      : null,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }));
+
+  reply.send({ total, page, limit, data });
 }
 
 export async function addDepartment(
@@ -102,8 +99,8 @@ export async function editDepartment(
     throw new ValidationError('Invalid request', parsed.error.issues);
   }
 
-  const departmentId = Number((request.params as any).id);
   const prisma = request.prisma;
+  const departmentId = Number((request.params as any).id);
   const userId = BigInt((request as any).user.sub);
 
   const user = await prisma.user.findUnique({
