@@ -60,25 +60,25 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
 
     const { name, code, subdomain, contactEmail, planId } = parsed.data;
     const prisma = request.prisma;
-    const existing = await prisma.institution.findFirst({
-      where: {
-        OR: [{ code }, { subdomain: subdomain ?? undefined }],
-      },
-    });
+    // const existing = await prisma.institution.findFirst({
+    //   where: {
+    //     OR: [{ code }, { subdomain: subdomain ?? undefined }],
+    //   },
+    // });
 
-    if (existing) {
-      if (existing.code === code) {
-        throw new ConflictError('Institution with this code already exists');
-      }
-      if (existing.subdomain === subdomain) {
-        throw new ConflictError('Institution with this subdomain already exists');
-      }
-    }
+    // if (existing) {
+    //   if (existing.code === code) {
+    //     throw new ConflictError('Institution with this code already exists');
+    //   }
+    //   if (existing.subdomain === subdomain) {
+    //     throw new ConflictError('Institution with this subdomain already exists');
+    //   }
+    // }
     const inst = await prisma.institution.create({
       data: {
         name,
         code,
-        subdomain,
+        // subdomain,
         contactEmail,
         planId: planId ?? null,
         status: 'active',

@@ -325,7 +325,7 @@ export async function generateInviteHandler(
     const link = `${config.auth.oneTimeLinkBase}?token=${rawToken}`;
 
     await emailService.sendInvite(email, link, 'institution', {
-      recipientName: `${firstName ?? ''} ${lastName ?? ''}`.trim(),
+      recipientName: `${firstName ?? ''} ${lastName ?? ''}`.trim()
     });
 
     logger.audit({

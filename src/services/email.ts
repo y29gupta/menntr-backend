@@ -11,6 +11,7 @@ interface InviteData {
   inviteLink: string;
   inviterName?: string;
   institutionName?: string;
+  institutionCode?: string;
   role?: string;
 }
 
@@ -24,7 +25,7 @@ export class EmailService {
    * Generate HTML template based on invite type
    */
   private generateInviteTemplate(type: InviteType, data: InviteData): string {
-    const { recipientName, inviteLink, inviterName, institutionName, role } = data;
+    const { recipientName, inviteLink, inviterName, institutionName, institutionCode, role } = data;
     const expiryMinutes = config.auth.otpExpiryMinutes;
 
     // Common styles
@@ -55,7 +56,7 @@ export class EmailService {
             </div>
             <div class="content">
               <p>Hi ${recipientName || 'there'},</p>
-              
+              <p>Institution Code: ${institutionCode}</p>
               <p>You have been invited to join <strong>MENNTR</strong> as an institutional partner.</p>
               
               <div class="info-box">
@@ -188,6 +189,7 @@ export class EmailService {
         inviteLink: link,
         inviterName: data.inviterName,
         institutionName: data.institutionName,
+        institutionCode: data.institutionCode,
         role: data.role,
       };
 
