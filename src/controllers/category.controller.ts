@@ -1,18 +1,16 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { z } from 'zod';
+import {
+  CreateCategorySchema,
+  UpdateCategorySchema,
+} from '../schemas/category.zod';
 import {
   getCategories,
   createCategory,
   updateCategory,
 } from '../services/category.service';
 import { Serializer } from '../utils/serializers';
+import { ValidationError, ForbiddenError } from '../utils/errors';
 
-const CategorySchema = z.object({
-  name: z.string().min(2),
-  code: z.string().min(2),
-  headUserId: z.number(),
-  departmentIds: z.array(z.number()).default([]),
-});
 
 export async function listCategories(req: FastifyRequest, reply: FastifyReply) {
   const prisma = req.prisma;
@@ -24,30 +22,31 @@ export async function listCategories(req: FastifyRequest, reply: FastifyReply) {
   });
 
   if (!user?.institutionId) {
-    return reply.status(403).send({ message: 'No institution' });
+    throw new ForbiddenError('No institution linked');
   }
 
   const categories = await getCategories(prisma, user.institutionId);
-  const safeResponse = categories.map((category) => ({
-    ...category,
-    id: category.id,
-    users: category.users.map((ur) => ({
-      ...ur,
-      userId: Serializer.bigIntToString(ur.userId),
-      user: {
-        ...ur.user,
-        id: Serializer.bigIntToString(ur.user.id),
-      },
-    })),
-  }));
 
-  reply.send(safeResponse);
+  reply.send(
+    categories.map((c) => ({
+      ...c,
+      users: c.users.map((ur) => ({
+        ...ur,
+        userId: Serializer.bigIntToString(ur.userId),
+        user: {
+          ...ur.user,
+          id: Serializer.bigIntToString(ur.user.id),
+        },
+      })),
+    }))
+  );
 }
 
+
 export async function addCategory(req: FastifyRequest, reply: FastifyReply) {
-  const parsed = CategorySchema.safeParse(req.body);
+  const parsed = CreateCategorySchema.safeParse(req.body);
   if (!parsed.success) {
-    return reply.status(400).send(parsed.error);
+    throw new ValidationError('Invalid request', parsed.error.issues);
   }
 
   const prisma = req.prisma;
@@ -59,7 +58,7 @@ export async function addCategory(req: FastifyRequest, reply: FastifyReply) {
   });
 
   if (!user?.institutionId) {
-    return reply.status(403).send({ message: 'No institution' });
+    throw new ForbiddenError('No institution');
   }
 
   const category = await createCategory(
@@ -68,13 +67,14 @@ export async function addCategory(req: FastifyRequest, reply: FastifyReply) {
     parsed.data
   );
 
-  reply.status(201).send(category);
+  reply.code(201).send(category);
 }
 
+
 export async function editCategory(req: FastifyRequest, reply: FastifyReply) {
-  const parsed = CategorySchema.safeParse(req.body);
+  const parsed = UpdateCategorySchema.safeParse(req.body);
   if (!parsed.success) {
-    return reply.status(400).send(parsed.error);
+    throw new ValidationError('Invalid request', parsed.error.issues);
   }
 
   const categoryId = Number((req.params as any).id);
@@ -86,12 +86,17 @@ export async function editCategory(req: FastifyRequest, reply: FastifyReply) {
     select: { institutionId: true },
   });
 
+  if (!user?.institutionId) {
+    throw new ForbiddenError('No institution');
+  }
+
   const updated = await updateCategory(
     prisma,
     categoryId,
-    user!.institutionId!,
+    user.institutionId,
     parsed.data
   );
 
   reply.send(updated);
 }
+
