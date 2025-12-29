@@ -5,6 +5,7 @@ import {
   createCategory,
   updateCategory,
 } from '../services/category.service';
+import { Serializer } from '../utils/serializers';
 
 const CategorySchema = z.object({
   name: z.string().min(2),
@@ -26,8 +27,21 @@ export async function listCategories(req: FastifyRequest, reply: FastifyReply) {
     return reply.status(403).send({ message: 'No institution' });
   }
 
-  const data = await getCategories(prisma, user.institutionId);
-  reply.send(data);
+  const categories = await getCategories(prisma, user.institutionId);
+  const safeResponse = categories.map((category) => ({
+    ...category,
+    id: category.id,
+    users: category.users.map((ur) => ({
+      ...ur,
+      userId: Serializer.bigIntToString(ur.userId),
+      user: {
+        ...ur.user,
+        id: Serializer.bigIntToString(ur.user.id),
+      },
+    })),
+  }));
+
+  reply.send(safeResponse);
 }
 
 export async function addCategory(req: FastifyRequest, reply: FastifyReply) {
