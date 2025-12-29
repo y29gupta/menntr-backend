@@ -32,11 +32,20 @@ export async function getDepartments(
       where: {
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
-        code: { not: null }, // ✅ EXCLUDE SYSTEM ROLES
+
+        // ✅ Exclude system/template roles
+        code: { not: null },
+
+        // ✅ Allow both categorized & independent departments
+        OR: [
+          { parentId: null },        // Independent department
+          { parentId: { not: null } } // Under a category
+        ],
+
         name: { contains: search, mode: 'insensitive' },
       },
       include: {
-        parent: true, // Category
+        parent: true, // Category (nullable)
         users: {
           include: { user: true }, // HOD
         },
@@ -45,17 +54,19 @@ export async function getDepartments(
       skip: (page - 1) * limit,
       take: limit,
     }),
+
     prisma.role.count({
       where: {
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
-        code: { not: null }, // ✅ COUNT ONLY REAL DEPARTMENTS
+        code: { not: null },
       },
     }),
   ]);
 
   return { rows, total };
 }
+
 
 /**
  * CREATE DEPARTMENT
