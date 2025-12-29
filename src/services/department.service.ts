@@ -31,7 +31,8 @@ export async function getDepartments(
     prisma.role.findMany({
       where: {
         institutionId,
-        roleHierarchyId: DEPARTMENT_LEVEL,
+        roleHierarchyId: 3,
+        isSystemRole: false, // ✅ exclude system roles
         name: { contains: search, mode: 'insensitive' },
       },
       include: {
@@ -45,12 +46,17 @@ export async function getDepartments(
       take: limit,
     }),
     prisma.role.count({
-      where: { institutionId, roleHierarchyId: DEPARTMENT_LEVEL },
+      where: {
+        institutionId,
+        roleHierarchyId: 3,
+        isSystemRole: false, // ✅ count only real departments
+      },
     }),
   ]);
 
   return { rows, total };
 }
+
 
 /**
  * Create department
@@ -61,19 +67,34 @@ export async function createDepartment(
   input: CreateDepartmentInput
 ) {
   return prisma.$transaction(async (tx) => {
-    // Validate category if provided
+    // Validate category
     if (input.categoryId) {
       const category = await tx.role.findFirst({
         where: {
           id: input.categoryId,
           institutionId,
           roleHierarchyId: CATEGORY_LEVEL,
+          isSystemRole: false,
         },
       });
 
       if (!category) {
         throw new Error('Invalid category');
       }
+    }
+
+    // Prevent duplicate code
+    const exists = await tx.role.findFirst({
+      where: {
+        institutionId,
+        roleHierarchyId: DEPARTMENT_LEVEL,
+        isSystemRole: false,
+        code: input.code,
+      },
+    });
+
+    if (exists) {
+      throw new Error('Department code already exists');
     }
 
     const department = await tx.role.create({
@@ -83,10 +104,22 @@ export async function createDepartment(
         institutionId,
         parentId: input.categoryId ?? null,
         roleHierarchyId: DEPARTMENT_LEVEL,
+        isSystemRole: false,
       },
     });
 
-    if (input.hodUserId) {
+    if (input.hodUserId !== undefined) {
+      const hod = await tx.user.findFirst({
+        where: {
+          id: BigInt(input.hodUserId),
+          institutionId,
+        },
+      });
+
+      if (!hod) {
+        throw new Error('Invalid HOD user');
+      }
+
       await tx.userRole.create({
         data: {
           roleId: department.id,
@@ -98,6 +131,7 @@ export async function createDepartment(
     return department;
   });
 }
+
 
 /**
  * Update department
@@ -114,6 +148,7 @@ export async function updateDepartment(
         id: departmentId,
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
+        isSystemRole: false,
       },
     });
 
@@ -121,22 +156,40 @@ export async function updateDepartment(
       throw new Error('Department not found');
     }
 
-    if (input.categoryId !== undefined) {
-      if (input.categoryId !== null) {
-        const category = await tx.role.findFirst({
-          where: {
-            id: input.categoryId,
-            institutionId,
-            roleHierarchyId: CATEGORY_LEVEL,
-          },
-        });
+    // ✅ 1️⃣ Prevent duplicate department code
+    if (input.code) {
+      const exists = await tx.role.findFirst({
+        where: {
+          institutionId,
+          roleHierarchyId: DEPARTMENT_LEVEL,
+          isSystemRole: false,
+          code: input.code,
+          id: { not: departmentId }, // 👈 exclude current department
+        },
+      });
 
-        if (!category) {
-          throw new Error('Invalid category');
-        }
+      if (exists) {
+        throw new Error('Department code already exists');
       }
     }
 
+    // ✅ 2️⃣ Validate category if provided
+    if (input.categoryId !== undefined && input.categoryId !== null) {
+      const category = await tx.role.findFirst({
+        where: {
+          id: input.categoryId,
+          institutionId,
+          roleHierarchyId: CATEGORY_LEVEL,
+          isSystemRole: false,
+        },
+      });
+
+      if (!category) {
+        throw new Error('Invalid category');
+      }
+    }
+
+    // ✅ 3️⃣ Update department
     const updated = await tx.role.update({
       where: { id: departmentId },
       data: {
@@ -148,19 +201,35 @@ export async function updateDepartment(
       },
     });
 
-    if (input.hodUserId) {
+    // ✅ 4️⃣ Update HOD
+    if (input.hodUserId !== undefined) {
       await tx.userRole.deleteMany({
         where: { roleId: departmentId },
       });
 
-      await tx.userRole.create({
-        data: {
-          roleId: departmentId,
-          userId: BigInt(input.hodUserId),
-        },
-      });
+      if (input.hodUserId !== null) {
+        const hod = await tx.user.findFirst({
+          where: {
+            id: BigInt(input.hodUserId),
+            institutionId,
+          },
+        });
+
+        if (!hod) {
+          throw new Error('Invalid HOD user');
+        }
+
+        await tx.userRole.create({
+          data: {
+            roleId: departmentId,
+            userId: BigInt(input.hodUserId),
+          },
+        });
+      }
     }
 
     return updated;
   });
 }
+
+
