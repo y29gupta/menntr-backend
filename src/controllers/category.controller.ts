@@ -48,7 +48,10 @@ export async function listCategories(req: FastifyRequest, reply: FastifyReply) {
   );
 }
 
-export async function categoryMeta(req: FastifyRequest, reply: FastifyReply) {
+export async function categoryMeta(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
   const prisma = req.prisma;
   const userId = BigInt((req as any).user.sub);
 
@@ -62,8 +65,23 @@ export async function categoryMeta(req: FastifyRequest, reply: FastifyReply) {
   }
 
   const meta = await getCategoryMeta(prisma, user.institutionId);
-  reply.send(meta);
+
+  // ✅ SERIALIZE BIGINTS HERE
+  reply.send({
+    users: meta.users.map((u) => ({
+      id: Serializer.bigIntToString(u.id),
+      firstName: u.firstName,
+      lastName: u.lastName,
+      email: u.email,
+    })),
+    departments: meta.departments.map((d) => ({
+      id: d.id,
+      name: d.name,
+      parentId: d.parentId ? Number(d.parentId) : null,
+    })),
+  });
 }
+
 
 export async function addCategory(req: FastifyRequest, reply: FastifyReply) {
   const parsed = CreateCategorySchema.safeParse(req.body);
