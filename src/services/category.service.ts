@@ -1,20 +1,8 @@
+// src/services/category.service.ts
 import { PrismaClient } from '@prisma/client';
 
-export interface CreateCategoryInput {
-  name: string;
-  code: string;
-  headUserId: number;
-  departmentIds: number[];
-}
-
-export interface UpdateCategoryInput {
-  name?: string;
-  code?: string;
-  headUserId?: number;
-  departmentIds?: number[];
-}
-
-
+const CATEGORY_LEVEL = 2;
+const DEPARTMENT_LEVEL = 3;
 
 export async function getCategories(
   prisma: PrismaClient,
@@ -23,35 +11,77 @@ export async function getCategories(
   return prisma.role.findMany({
     where: {
       institutionId,
-      roleHierarchyId: 2, // Category Admin
+      roleHierarchyId: CATEGORY_LEVEL,
+      code: { not: null },
     },
     include: {
       children: {
-        where: { roleHierarchyId: 3 }, // Departments
+        where: {
+          roleHierarchyId: DEPARTMENT_LEVEL,
+          code: { not: null },
+        },
         orderBy: { name: 'asc' },
       },
       users: {
-        include: { user: true }, // Assigned category head
+        include: { user: true },
       },
     },
     orderBy: { name: 'asc' },
   });
 }
 
+/**
+ * Used for dropdowns (Assign Category Head + Departments)
+ */
+export async function getCategoryMeta(
+  prisma: PrismaClient,
+  institutionId: number
+) {
+  const [users, departments] = await Promise.all([
+    prisma.user.findMany({
+      where: { institutionId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+      },
+      orderBy: { firstName: 'asc' },
+    }),
+    prisma.role.findMany({
+      where: {
+        institutionId,
+        roleHierarchyId: DEPARTMENT_LEVEL,
+        code: { not: null },
+      },
+      select: {
+        id: true,
+        name: true,
+        parentId: true,
+      },
+      orderBy: { name: 'asc' },
+    }),
+  ]);
+
+  return { users, departments };
+}
 
 export async function createCategory(
   prisma: PrismaClient,
   institutionId: number,
-  input: CreateCategoryInput
+  input: {
+    name: string;
+    code: string;
+    headUserId: number;
+    departmentIds: number[];
+  }
 ) {
   return prisma.$transaction(async (tx) => {
     const root = await tx.role.findFirst({
       where: { institutionId, roleHierarchyId: 1 },
     });
 
-    if (!root) {
-      throw new Error('Institution Admin role missing');
-    }
+    if (!root) throw new Error('Institution root missing');
 
     const category = await tx.role.create({
       data: {
@@ -59,14 +89,14 @@ export async function createCategory(
         code: input.code,
         institutionId,
         parentId: root.id,
-        roleHierarchyId: 2,
+        roleHierarchyId: CATEGORY_LEVEL,
       },
     });
 
     await tx.userRole.create({
       data: {
-        userId: BigInt(input.headUserId),
         roleId: category.id,
+        userId: BigInt(input.headUserId),
       },
     });
 
@@ -75,7 +105,7 @@ export async function createCategory(
         where: {
           id: { in: input.departmentIds },
           institutionId,
-          roleHierarchyId: 3,
+          roleHierarchyId: DEPARTMENT_LEVEL,
         },
         data: { parentId: category.id },
       });
@@ -85,26 +115,27 @@ export async function createCategory(
   });
 }
 
-
-
 export async function updateCategory(
   prisma: PrismaClient,
   categoryId: number,
   institutionId: number,
-  input: UpdateCategoryInput
+  input: {
+    name?: string;
+    code?: string;
+    headUserId?: number;
+    departmentIds?: number[];
+  }
 ) {
   return prisma.$transaction(async (tx) => {
     const category = await tx.role.findFirst({
       where: {
         id: categoryId,
         institutionId,
-        roleHierarchyId: 2,
+        roleHierarchyId: CATEGORY_LEVEL,
       },
     });
 
-    if (!category) {
-      throw new Error('Category not found');
-    }
+    if (!category) throw new Error('Category not found');
 
     const updated = await tx.role.update({
       where: { id: categoryId },
@@ -115,10 +146,7 @@ export async function updateCategory(
     });
 
     if (input.headUserId) {
-      await tx.userRole.deleteMany({
-        where: { roleId: categoryId },
-      });
-
+      await tx.userRole.deleteMany({ where: { roleId: categoryId } });
       await tx.userRole.create({
         data: {
           roleId: categoryId,
@@ -128,10 +156,11 @@ export async function updateCategory(
     }
 
     if (input.departmentIds) {
+      // Clear old departments
       await tx.role.updateMany({
         where: {
           parentId: categoryId,
-          roleHierarchyId: 3,
+          roleHierarchyId: DEPARTMENT_LEVEL,
         },
         data: { parentId: null },
       });
@@ -141,7 +170,7 @@ export async function updateCategory(
           where: {
             id: { in: input.departmentIds },
             institutionId,
-            roleHierarchyId: 3,
+            roleHierarchyId: DEPARTMENT_LEVEL,
           },
           data: { parentId: categoryId },
         });
@@ -151,4 +180,3 @@ export async function updateCategory(
     return updated;
   });
 }
-
