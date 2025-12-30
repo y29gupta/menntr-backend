@@ -293,3 +293,35 @@ export async function updateCategory(
   });
 }
 
+export async function getCategoryByIdService(
+  prisma: PrismaClient,
+  categoryId: number,
+  institutionId: number
+) {
+  const category = await prisma.role.findFirst({
+    where: {
+      id: categoryId,
+      institutionId,
+      roleHierarchyId: CATEGORY_LEVEL,
+      code: { not: null },
+    },
+    include: {
+      users: {
+        include: { user: true }, // category head
+      },
+      children: {
+        where: {
+          roleHierarchyId: DEPARTMENT_LEVEL,
+          code: { not: null },
+        },
+        orderBy: { name: 'asc' },
+      },
+    },
+  });
+
+  if (!category) {
+    throw new Error('Category not found');
+  }
+
+  return category;
+}

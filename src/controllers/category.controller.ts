@@ -9,6 +9,7 @@ import {
   createCategory,
   updateCategory,
   getCategoryMeta,
+  getCategoryByIdService,
 } from '../services/category.service';
 import { Serializer } from '../utils/serializers';
 import { ValidationError, ForbiddenError } from '../utils/errors';
@@ -140,4 +141,54 @@ export async function categoryMeta(
   const meta = await getCategoryMeta(prisma, user.institutionId);
 
   reply.send(meta);
+}
+
+export async function getCategoryById(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const prisma = req.prisma;
+  const categoryId = Number((req.params as any).id);
+  const userId = BigInt((req as any).user.sub);
+
+  if (Number.isNaN(categoryId)) {
+    throw new ValidationError('Invalid category id');
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { institutionId: true },
+  });
+
+  if (!user?.institutionId) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const category = await getCategoryByIdService(
+    prisma,
+    categoryId,
+    user.institutionId
+  );
+
+  reply.send({
+    id: category.id,
+    name: category.name,
+    code: category.code,
+
+    head: category.users.length
+      ? {
+          id: Serializer.bigIntToString(category.users[0].user.id),
+          name: `${category.users[0].user.firstName ?? ''} ${
+            category.users[0].user.lastName ?? ''
+          }`.trim(),
+          email: category.users[0].user.email,
+        }
+      : null,
+
+    departments: category.children.map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      code: d.code,
+    })),
+  });
 }
