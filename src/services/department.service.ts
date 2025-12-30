@@ -290,7 +290,7 @@ export async function getDepartmentMeta(
     prisma.userRole.findMany({
       where: {
         role: {
-          name: 'HOD',
+          name: 'Department Admin',
           institutionId,
         },
       },

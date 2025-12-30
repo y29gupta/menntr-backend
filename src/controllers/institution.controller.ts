@@ -151,7 +151,7 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
       // Create role if it doesn't exist
       institutionAdminRole = await prisma.role.create({
         data: {
-          name: 'Institution Admin',
+          name: 'Department Admin',
           institutionId: institutionId,
           isSystemRole: false,
         },
