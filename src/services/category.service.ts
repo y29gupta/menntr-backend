@@ -1,8 +1,15 @@
-// src/services/category.service.ts
 import { PrismaClient } from '@prisma/client';
+import {
+  NotFoundError,
+  ConflictError,
+  ForbiddenError,
+} from '../utils/errors';
+
 
 const CATEGORY_LEVEL = 2;
 const DEPARTMENT_LEVEL = 3;
+const ROOT_LEVEL = 1;
+
 
 export async function getCategories(
   prisma: PrismaClient,
@@ -30,6 +37,7 @@ export async function getCategories(
   });
 }
 
+
 /**
  * Used for dropdowns (Assign Category Head + Departments)
  */
@@ -48,6 +56,7 @@ export async function getCategoryMeta(
       },
       orderBy: { firstName: 'asc' },
     }),
+
     prisma.role.findMany({
       where: {
         institutionId,
@@ -63,8 +72,16 @@ export async function getCategoryMeta(
     }),
   ]);
 
-  return { users, departments };
+  return {
+    users: users.map((u) => ({
+      id: u.id.toString(),
+      name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim(),
+      email: u.email,
+    })),
+    departments,
+  };
 }
+
 
 export async function createCategory(
   prisma: PrismaClient,
@@ -77,12 +94,44 @@ export async function createCategory(
   }
 ) {
   return prisma.$transaction(async (tx) => {
+    // 1️⃣ Root role check
     const root = await tx.role.findFirst({
-      where: { institutionId, roleHierarchyId: 1 },
+      where: {
+        institutionId,
+        roleHierarchyId: ROOT_LEVEL,
+      },
     });
 
-    if (!root) throw new Error('Institution root missing');
+    if (!root) {
+      throw new NotFoundError('Institution root role not found');
+    }
 
+    // 2️⃣ Prevent duplicate category code
+    const existing = await tx.role.findFirst({
+      where: {
+        institutionId,
+        roleHierarchyId: CATEGORY_LEVEL,
+        code: input.code,
+      },
+    });
+
+    if (existing) {
+      throw new ConflictError('Category code already exists');
+    }
+
+    // 3️⃣ Validate category head user
+    const headUser = await tx.user.findFirst({
+      where: {
+        id: BigInt(input.headUserId),
+        institutionId,
+      },
+    });
+
+    if (!headUser) {
+      throw new ForbiddenError('Invalid category head user');
+    }
+
+    // 4️⃣ Create category
     const category = await tx.role.create({
       data: {
         name: input.name,
@@ -93,6 +142,7 @@ export async function createCategory(
       },
     });
 
+    // 5️⃣ Assign category head
     await tx.userRole.create({
       data: {
         roleId: category.id,
@@ -100,13 +150,24 @@ export async function createCategory(
       },
     });
 
+    // 6️⃣ Assign departments (validated)
     if (input.departmentIds.length) {
-      await tx.role.updateMany({
+      const validDepartments = await tx.role.count({
         where: {
           id: { in: input.departmentIds },
           institutionId,
           roleHierarchyId: DEPARTMENT_LEVEL,
         },
+      });
+
+      if (validDepartments !== input.departmentIds.length) {
+        throw new ForbiddenError(
+          'One or more departments are invalid or belong to another institution'
+        );
+      }
+
+      await tx.role.updateMany({
+        where: { id: { in: input.departmentIds } },
         data: { parentId: category.id },
       });
     }
@@ -114,6 +175,7 @@ export async function createCategory(
     return category;
   });
 }
+
 
 export async function updateCategory(
   prisma: PrismaClient,
@@ -135,7 +197,25 @@ export async function updateCategory(
       },
     });
 
-    if (!category) throw new Error('Category not found');
+    if (!category) {
+      throw new NotFoundError('Category not found');
+    }
+
+    // Prevent duplicate code
+    if (input.code) {
+      const exists = await tx.role.findFirst({
+        where: {
+          institutionId,
+          roleHierarchyId: CATEGORY_LEVEL,
+          code: input.code,
+          id: { not: categoryId },
+        },
+      });
+
+      if (exists) {
+        throw new ConflictError('Category code already exists');
+      }
+    }
 
     const updated = await tx.role.update({
       where: { id: categoryId },
@@ -145,7 +225,19 @@ export async function updateCategory(
       },
     });
 
-    if (input.headUserId) {
+    // Update head
+    if (input.headUserId !== undefined) {
+      const headUser = await tx.user.findFirst({
+        where: {
+          id: BigInt(input.headUserId),
+          institutionId,
+        },
+      });
+
+      if (!headUser) {
+        throw new ForbiddenError('Invalid category head user');
+      }
+
       await tx.userRole.deleteMany({ where: { roleId: categoryId } });
       await tx.userRole.create({
         data: {
@@ -155,8 +247,8 @@ export async function updateCategory(
       });
     }
 
+    // Update departments
     if (input.departmentIds) {
-      // Clear old departments
       await tx.role.updateMany({
         where: {
           parentId: categoryId,
@@ -166,12 +258,20 @@ export async function updateCategory(
       });
 
       if (input.departmentIds.length) {
-        await tx.role.updateMany({
+        const valid = await tx.role.count({
           where: {
             id: { in: input.departmentIds },
             institutionId,
             roleHierarchyId: DEPARTMENT_LEVEL,
           },
+        });
+
+        if (valid !== input.departmentIds.length) {
+          throw new ForbiddenError('Invalid departments selected');
+        }
+
+        await tx.role.updateMany({
+          where: { id: { in: input.departmentIds } },
           data: { parentId: categoryId },
         });
       }
@@ -180,3 +280,4 @@ export async function updateCategory(
     return updated;
   });
 }
+

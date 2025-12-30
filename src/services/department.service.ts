@@ -1,4 +1,10 @@
 import { PrismaClient } from '@prisma/client';
+import {
+  NotFoundError,
+  ConflictError,
+  ForbiddenError,
+} from '../utils/errors';
+
 
 const DEPARTMENT_LEVEL = 3;
 const CATEGORY_LEVEL = 2;
@@ -29,14 +35,11 @@ export async function getDepartments(
       where: {
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
-
-        
         isSystemRole: false,
-
         name: { contains: search, mode: 'insensitive' },
       },
       include: {
-        parent: true, // Category (nullable)
+        parent: true, // category
         users: {
           include: { user: true }, // HOD
         },
@@ -45,7 +48,6 @@ export async function getDepartments(
       skip: (page - 1) * limit,
       take: limit,
     }),
-
     prisma.role.count({
       where: {
         institutionId,
@@ -61,41 +63,44 @@ export async function getDepartments(
 
 
 
+
 export async function createDepartment(
   prisma: PrismaClient,
   institutionId: number,
   input: CreateDepartmentInput
 ) {
   return prisma.$transaction(async (tx) => {
-    // Validate category if provided
-    if (input.categoryId) {
+    // 1️⃣ Validate category (if provided)
+    if (input.categoryId !== undefined && input.categoryId !== null) {
       const category = await tx.role.findFirst({
         where: {
           id: input.categoryId,
           institutionId,
           roleHierarchyId: CATEGORY_LEVEL,
-          code: { not: null },
+          isSystemRole: false,
         },
       });
 
       if (!category) {
-        throw new Error('Invalid category');
+        throw new ForbiddenError('Invalid category selected');
       }
     }
 
-    // Prevent duplicate department code
+    // 2️⃣ Prevent duplicate department code
     const exists = await tx.role.findFirst({
       where: {
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
+        isSystemRole: false,
         code: input.code,
       },
     });
 
     if (exists) {
-      throw new Error('Department code already exists');
+      throw new ConflictError('Department code already exists');
     }
 
+    // 3️⃣ Create department
     const department = await tx.role.create({
       data: {
         name: input.name,
@@ -103,11 +108,12 @@ export async function createDepartment(
         institutionId,
         parentId: input.categoryId ?? null,
         roleHierarchyId: DEPARTMENT_LEVEL,
+        isSystemRole: false,
       },
     });
 
-    // Assign HOD
-    if (input.hodUserId) {
+    // 4️⃣ Assign HOD
+    if (input.hodUserId !== undefined) {
       const hod = await tx.user.findFirst({
         where: {
           id: BigInt(input.hodUserId),
@@ -116,7 +122,7 @@ export async function createDepartment(
       });
 
       if (!hod) {
-        throw new Error('Invalid HOD user');
+        throw new ForbiddenError('Invalid HOD user');
       }
 
       await tx.userRole.create({
@@ -132,6 +138,7 @@ export async function createDepartment(
 }
 
 
+
 export async function updateDepartment(
   prisma: PrismaClient,
   departmentId: number,
@@ -139,51 +146,54 @@ export async function updateDepartment(
   input: UpdateDepartmentInput
 ) {
   return prisma.$transaction(async (tx) => {
+    // 1️⃣ Ensure department exists
     const department = await tx.role.findFirst({
       where: {
         id: departmentId,
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
-        code: { not: null },
+        isSystemRole: false,
       },
     });
 
     if (!department) {
-      throw new Error('Department not found');
+      throw new NotFoundError('Department not found');
     }
 
-    // Validate category
+    // 2️⃣ Validate category
     if (input.categoryId !== undefined && input.categoryId !== null) {
       const category = await tx.role.findFirst({
         where: {
           id: input.categoryId,
           institutionId,
           roleHierarchyId: CATEGORY_LEVEL,
-          code: { not: null },
+          isSystemRole: false,
         },
       });
 
       if (!category) {
-        throw new Error('Invalid category');
+        throw new ForbiddenError('Invalid category selected');
       }
     }
 
-    // Prevent duplicate code on update
+    // 3️⃣ Prevent duplicate code
     if (input.code) {
       const exists = await tx.role.findFirst({
         where: {
           institutionId,
           roleHierarchyId: DEPARTMENT_LEVEL,
+          isSystemRole: false,
           code: input.code,
           id: { not: departmentId },
         },
       });
 
       if (exists) {
-        throw new Error('Department code already exists');
+        throw new ConflictError('Department code already exists');
       }
     }
 
+    // 4️⃣ Update department
     const updated = await tx.role.update({
       where: { id: departmentId },
       data: {
@@ -195,7 +205,7 @@ export async function updateDepartment(
       },
     });
 
-    // Update HOD
+    // 5️⃣ Update HOD
     if (input.hodUserId !== undefined) {
       await tx.userRole.deleteMany({
         where: { roleId: departmentId },
@@ -210,7 +220,7 @@ export async function updateDepartment(
         });
 
         if (!hod) {
-          throw new Error('Invalid HOD user');
+          throw new ForbiddenError('Invalid HOD user');
         }
 
         await tx.userRole.create({
@@ -225,3 +235,4 @@ export async function updateDepartment(
     return updated;
   });
 }
+

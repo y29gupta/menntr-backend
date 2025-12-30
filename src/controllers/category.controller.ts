@@ -70,8 +70,8 @@ export async function categoryMeta(
   reply.send({
     users: meta.users.map((u) => ({
       id: Serializer.bigIntToString(u.id),
-      firstName: u.firstName,
-      lastName: u.lastName,
+      // firstName: u.firstName,
+      // lastName: u.lastName,
       email: u.email,
     })),
     departments: meta.departments.map((d) => ({
