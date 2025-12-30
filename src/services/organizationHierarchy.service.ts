@@ -28,19 +28,16 @@ export async function buildOrganizationHierarchy(
     orderBy: { createdAt: 'asc' },
   });
 
-  // BASE STRUCTURE
-  const hierarchy: any = {
+  // 🔹 ROOT
+  const hierarchy = {
     institution: {
       name: 'Institution Admin',
-      children: [],
+      children: [] as any[],
     },
   };
 
-  const categoryCount = categories.length;
-  const hasCategory = categoryCount > 0;
-
-  // 🟢 CASE: no category and no department
-  if (!hasCategory) {
+  // 🟢 CASE 1: brand-new institution (no categories)
+  if (categories.length === 0) {
     hierarchy.institution.children.push({
       name: 'Category',
       children: [{ name: 'Department' }],
@@ -48,28 +45,21 @@ export async function buildOrganizationHierarchy(
     return hierarchy;
   }
 
-  // 🟢 CATEGORY EXISTS
-  categories.forEach((cat, index) => {
-    const deptCount = cat._count.children;
+  // 🟢 CASE 2+: categories exist
+  categories.forEach((cat) => {
+    const departmentCount = cat._count.children;
 
-    const categoryNode: any = {
+    hierarchy.institution.children.push({
       name: 'Category',
-      children: [],
-    };
-
-    // BASE department
-    if (deptCount === 0 && index === 0) {
-      categoryNode.children.push({ name: 'Department' });
-    }
-
-    // REAL extra departments
-    const extraDepartments = Math.max(0, deptCount - 1);
-    for (let i = 0; i < extraDepartments; i++) {
-      categoryNode.children.push({ name: 'Department' });
-    }
-
-    hierarchy.institution.children.push(categoryNode);
+      children:
+        departmentCount > 0
+          ? Array.from({ length: departmentCount }, () => ({
+              name: 'Department',
+            }))
+          : [],
+    });
   });
 
   return hierarchy;
 }
+
