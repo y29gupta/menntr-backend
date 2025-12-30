@@ -10,6 +10,7 @@ import {
 
 
 import { ForbiddenError } from '../utils/errors';
+import { buildOrganizationHierarchy } from '../services/organizationHierarchy.service';
 
 
 const CATEGORY_LEVEL = 2;
@@ -31,77 +32,14 @@ export async function getHierarchy(
     throw new ForbiddenError('No institution linked');
   }
 
-  // Institution Admin (always one)
-  const institution = await prisma.role.findFirst({
-    where: {
-      institutionId: user.institutionId,
-      roleHierarchyId: 1,
-    },
-    select: { id: true, name: true },
-  });
+  const hierarchy = await buildOrganizationHierarchy(
+    prisma,
+    user.institutionId
+  );
 
-  if (!institution) {
-    throw new Error('Institution Admin role missing');
-  }
-
-  // Fetch categories + departments
-  const categories = await prisma.role.findMany({
-    where: {
-      institutionId: user.institutionId,
-      roleHierarchyId: CATEGORY_LEVEL,
-      code: { not: null },
-    },
-    include: {
-      children: {
-        where: {
-          roleHierarchyId: DEPARTMENT_LEVEL,
-          code: { not: null },
-        },
-        select: { id: true, name: true },
-        orderBy: { name: 'asc' },
-      },
-    },
-    orderBy: { name: 'asc' },
-  });
-
-  // 🔹 If NO categories → return STATIC skeleton
-  if (categories.length === 0) {
-    return reply.send({
-      institution: {
-        id: institution.id,
-        name: institution.name,
-        children: [
-          {
-            id: null,
-            name: 'Category',
-            children: [
-              {
-                id: null,
-                name: 'Department',
-              },
-            ],
-          },
-        ],
-      },
-    });
-  }
-
-  // 🔹 Categories exist → overlay real data
-  return reply.send({
-    institution: {
-      id: institution.id,
-      name: institution.name,
-      children: categories.map((c:any) => ({
-        id: c.id,
-        name: c.name,
-        children:
-          c.children.length > 0
-            ? c.children
-            : [{ id: null, name: 'Department' }],
-      })),
-    },
-  });
+  reply.send(hierarchy);
 }
+
 
 
 export async function addCategory(
