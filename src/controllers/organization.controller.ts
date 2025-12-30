@@ -8,6 +8,9 @@ import {
   DeleteNodeParams,
 } from '../types/hierarchy.types';
 
+
+import { ForbiddenError } from '../utils/errors';
+
 export async function getHierarchy(
   req: FastifyRequest,
   reply: FastifyReply
@@ -20,13 +23,62 @@ export async function getHierarchy(
     select: { institutionId: true },
   });
 
-  const roles = await prisma.role.findMany({
-    where: { institutionId: user!.institutionId! },
-    orderBy: { createdAt: 'asc' },
+  if (!user?.institutionId) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  // 1️⃣ Institution Admin (ROOT)
+  const institutionAdmin = await prisma.role.findFirst({
+    where: {
+      institutionId: user.institutionId,
+      roleHierarchyId: 1,
+    },
+    select: {
+      id: true,
+      name: true,
+    },
   });
 
-  reply.send(buildTree(roles));
+  if (!institutionAdmin) {
+    return reply.send({ institution: null, categories: [] });
+  }
+
+  // 2️⃣ Categories
+  const categories = await prisma.role.findMany({
+    where: {
+      institutionId: user.institutionId,
+      roleHierarchyId: 2,
+      code: { not: null },
+    },
+    include: {
+      children: {
+        where: {
+          roleHierarchyId: 3,
+          code: { not: null },
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+        orderBy: { name: 'asc' },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  reply.send({
+    institution: {
+      id: institutionAdmin.id,
+      name: institutionAdmin.name,
+    },
+    categories: categories.map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      departments: c.children,
+    })),
+  });
 }
+
 
 export async function addCategory(
   req: FastifyRequest<{ Body: AddCategoryBody }>,
