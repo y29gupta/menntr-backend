@@ -124,6 +124,20 @@ export async function createDepartment(
       if (!hod) {
         throw new ForbiddenError('Invalid HOD user');
       }
+      const existingHod = await tx.userRole.findFirst({
+        where: {
+          userId: BigInt(input.hodUserId),
+          role: {
+            institutionId,
+            roleHierarchyId: DEPARTMENT_LEVEL,
+            isSystemRole: false,
+          },
+        },
+      });
+
+      if (existingHod) {
+        throw new ConflictError('User is already assigned as HOD to another department');
+      }
 
       await tx.userRole.create({
         data: {
@@ -223,6 +237,21 @@ export async function updateDepartment(
           throw new ForbiddenError('Invalid HOD user');
         }
 
+        const existingHod = await tx.userRole.findFirst({
+          where: {
+            userId: BigInt(input.hodUserId),
+            role: {
+              institutionId,
+              roleHierarchyId: DEPARTMENT_LEVEL,
+              isSystemRole: false,
+              id: {not: departmentId},
+            },
+          },
+        });
+
+        if(existingHod) {
+          throw new ConflictError('User is already assigned as HOD to another department');
+        }
         await tx.userRole.create({
           data: {
             roleId: departmentId,

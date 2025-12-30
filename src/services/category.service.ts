@@ -22,12 +22,15 @@ export async function getCategories(
       code: { not: null },
     },
     include: {
-      children: {
-        where: {
-          roleHierarchyId: DEPARTMENT_LEVEL,
-          code: { not: null },
+      _count: {
+        select: {
+          children: {
+            where: {
+              roleHierarchyId: DEPARTMENT_LEVEL,
+              code: { not: null },
+            },
+          },
         },
-        orderBy: { name: 'asc' },
       },
       users: {
         include: { user: true },
@@ -36,6 +39,7 @@ export async function getCategories(
     orderBy: { name: 'asc' },
   });
 }
+
 
 
 /**
@@ -61,12 +65,13 @@ export async function getCategoryMeta(
       where: {
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
-        code: { not: null },
+        code: { not: null },        // ✅ real departments only
+        isSystemRole: false,        // ✅ exclude system roles
       },
       select: {
         id: true,
         name: true,
-        parentId: true,
+        parentId: true,             // categoryId (nullable)
       },
       orderBy: { name: 'asc' },
     }),
@@ -78,9 +83,16 @@ export async function getCategoryMeta(
       name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim(),
       email: u.email,
     })),
-    departments,
+
+    departments: departments.map((d) => ({
+      id: d.id.toString(),
+      name: d.name,
+      categoryId: d.parentId ? d.parentId.toString() : null,
+      isAssigned: Boolean(d.parentId), // 🔥 useful for UI
+    })),
   };
 }
+
 
 
 export async function createCategory(
