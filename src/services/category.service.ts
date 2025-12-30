@@ -15,9 +15,7 @@ export interface UpdateCategoryInput {
 }
 
 
-/**
- * List categories for an institution
- */
+
 export async function getCategories(
   prisma: PrismaClient,
   institutionId: number
@@ -40,9 +38,7 @@ export async function getCategories(
   });
 }
 
-/**
- * Create category
- */
+
 export async function createCategory(
   prisma: PrismaClient,
   institutionId: number,
@@ -90,9 +86,7 @@ export async function createCategory(
 }
 
 
-/**
- * Update category
- */
+
 export async function updateCategory(
   prisma: PrismaClient,
   categoryId: number,

@@ -26,7 +26,7 @@ export async function createDefaultRoles(
   prisma: PrismaClient,
   institutionId: number
 ): Promise<void> {
-  // 1️⃣ Institution Admin (root)
+  //  Institution Admin (root)
   const institutionAdmin = await prisma.role.create({
     data: {
       name: 'Institution Admin',
@@ -36,7 +36,7 @@ export async function createDefaultRoles(
     },
   });
 
-  // 2️⃣ Category Admin
+  //  Category Admin
   const categoryAdmin = await prisma.role.create({
     data: {
       name: 'Category Admin',
@@ -46,7 +46,7 @@ export async function createDefaultRoles(
     },
   });
 
-  // 3️⃣ Department Admin
+  //  Department Admin
   const departmentAdmin = await prisma.role.create({
     data: {
       name: 'Department Admin',
@@ -56,7 +56,7 @@ export async function createDefaultRoles(
     },
   });
 
-  // 4️⃣ Faculty
+  // Faculty
   await prisma.role.create({
     data: {
       name: 'Faculty',
@@ -66,7 +66,7 @@ export async function createDefaultRoles(
     },
   });
 
-  // 5️⃣ Student (no parent, lowest level)
+  //  Student (no parent, lowest level)
   await prisma.role.create({
     data: {
       name: 'Student',
@@ -76,10 +76,7 @@ export async function createDefaultRoles(
   });
 }
 
-/**
- * Get Institution Admin role (root role)
- * Safe & deterministic (never rely on parentId = null)
- */
+
 export async function getInstitutionAdminRole(
   prisma: PrismaClient,
   institutionId: number
@@ -92,10 +89,7 @@ export async function getInstitutionAdminRole(
   });
 }
 
-/**
- * Assign permissions to a role
- * Validates permissions against institution's active plan
- */
+
 export async function assignPermissionsToRole(
   prisma: PrismaClient,
   roleId: number,
@@ -106,7 +100,7 @@ export async function assignPermissionsToRole(
     return { count: 0 };
   }
 
-  // 1️⃣ Validate permissions allowed by plan
+  //  Validate permissions allowed by plan
   const allowedPermissions = await prisma.permission.findMany({
     where: {
       id: { in: permissionIds },
@@ -129,7 +123,7 @@ export async function assignPermissionsToRole(
     throw new Error('One or more permissions are not allowed by the plan');
   }
 
-  // 2️⃣ Assign permissions
+  //  Assign permissions
   return prisma.rolePermission.createMany({
     data: allowedPermissions.map((permission) => ({
       roleId,
@@ -139,10 +133,7 @@ export async function assignPermissionsToRole(
   });
 }
 
-/**
- * Fetch full role hierarchy for an institution
- * Used by UI tree view
- */
+
 export async function getInstitutionRoles(
   prisma: PrismaClient,
   institutionId: number
@@ -153,10 +144,7 @@ export async function getInstitutionRoles(
   });
 }
 
-/**
- * Create a child role under a parent
- * Used for Category / Department creation
- */
+
 export async function createChildRole(
   prisma: PrismaClient,
   params: {
@@ -176,10 +164,7 @@ export async function createChildRole(
   });
 }
 
-/**
- * Move a role under a new parent
- * Used for drag & drop hierarchy changes
- */
+
 export async function moveRole(
   prisma: PrismaClient,
   roleId: number,
@@ -191,10 +176,7 @@ export async function moveRole(
   });
 }
 
-/**
- * Delete a role
- * (Children must be handled at controller level if needed)
- */
+
 export async function deleteRole(
   prisma: PrismaClient,
   roleId: number

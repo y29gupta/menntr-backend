@@ -9,9 +9,7 @@ import { TokenType } from '@prisma/client';
 import { Serializer } from '../utils/serializers';
 import { CookieManager } from '../utils/cookie';
 
-/* ------------------------------------------------------------------ */
-/* Schemas */
-/* ------------------------------------------------------------------ */
+
 
 const ValidateEmailSchema = z.object({
   email: z.string().email(),
@@ -32,9 +30,7 @@ const ResetPasswordSchema = z.object({
   newPassword: z.string().min(8),
 });
 
-/* ------------------------------------------------------------------ */
-/* 1. VALIDATE EMAIL */
-/* ------------------------------------------------------------------ */
+
 
 export async function validateForgotPasswordEmail(request: FastifyRequest, reply: FastifyReply) {
   const logger = new Logger(request.log);
@@ -60,9 +56,7 @@ export async function validateForgotPasswordEmail(request: FastifyRequest, reply
   return reply.send({ valid: true });
 }
 
-/* ------------------------------------------------------------------ */
-/* 2. SEND RESET PASSWORD EMAIL */
-/* ------------------------------------------------------------------ */
+
 
 export async function sendForgotPasswordEmail(request: FastifyRequest, reply: FastifyReply) {
   const emailService = new EmailService(request.server.mailer);
@@ -80,7 +74,7 @@ export async function sendForgotPasswordEmail(request: FastifyRequest, reply: Fa
     where: { email, status: 'active' },
   });
 
-  // IMPORTANT: Enumeration-safe response
+ 
   if (!user) {
     logger.warn('Forgot password email requested for non-existent user', {
       email,
@@ -123,9 +117,7 @@ export async function sendForgotPasswordEmail(request: FastifyRequest, reply: Fa
   });
 }
 
-/* ------------------------------------------------------------------ */
-/* 3. VERIFY RESET TOKEN */
-/* ------------------------------------------------------------------ */
+
 
 export async function verifyResetToken(request: FastifyRequest, reply: FastifyReply) {
   const parsed = VerifyTokenSchema.safeParse(request.body);
@@ -155,9 +147,7 @@ export async function verifyResetToken(request: FastifyRequest, reply: FastifyRe
   return reply.send({ valid: true });
 }
 
-/* ------------------------------------------------------------------ */
-/* 4. RESET PASSWORD */
-/* ------------------------------------------------------------------ */
+
 
 export async function resetPassword(request: FastifyRequest, reply: FastifyReply) {
   const emailService = new EmailService(request.server.mailer);
@@ -196,7 +186,7 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
 
   const passwordHash = await AuthService.hashPassword(newPassword);
 
-  // 🔒 Atomic update
+
   await prisma.$transaction([
     prisma.user.update({
       where: { id: record.userId },
@@ -215,20 +205,19 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
     }),
   ]);
 
-  // 🎭 Serialize roles
+  //  Serialize roles
   const roles = Serializer.serializeRoles(record.user);
 
-  // 🎟 Issue FINAL JWT
   const jwtToken = AuthService.signJwt({
     sub: record.userId.toString(),
     email: record.user.email,
     roles: roles.map((r: any) => r.name),
   });
 
-  // 🍪 Set auth cookie
+  // Set auth cookie
   CookieManager.setAuthToken(reply, jwtToken);
 
-  // 📧 Notify user
+  //  Notify user
   await emailService.sendPasswordChangedNotification(email);
 
   logger.audit({
@@ -240,7 +229,7 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
     userAgent: request.headers['user-agent'],
   });
 
-  // ✅ What frontend needs
+
   return reply.send({
     success: true,
     roles,

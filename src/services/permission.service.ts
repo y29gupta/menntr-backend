@@ -1,4 +1,3 @@
-// services/permission.service.ts
 export class PermissionService {
     static async createPermission(prisma: any, data: any) {
         return prisma.permission.create({

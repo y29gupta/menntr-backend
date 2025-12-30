@@ -56,11 +56,7 @@ export async function loginHandler(
       ip: request.ip,
     });
 
-    /**
-     * ====================================================
-     * 1️⃣ SUPER ADMIN LOGIN (NO institutionCode)
-     * ====================================================
-     */
+
     if (!institutionCode) {
       const user = await prisma.user.findFirst({
         where: {
@@ -121,11 +117,7 @@ export async function loginHandler(
       );
     }
 
-    /**
-     * ====================================================
-     * 2️⃣ INSTITUTION USER LOGIN
-     * ====================================================
-     */
+
     const institution = await prisma.institution.findUnique({
       where: { code: institutionCode },
     });
@@ -258,9 +250,7 @@ export async function generateInviteHandler(
       invitedBy: currentUser?.sub,
     });
 
-    // --------------------------------------------------
-    // 1️⃣ Find or create user
-    // --------------------------------------------------
+
     let user = await prisma.user.findFirst({
       where: { email, institutionId },
     });
@@ -280,9 +270,7 @@ export async function generateInviteHandler(
       });
     }
 
-    // --------------------------------------------------
-    // 2️⃣ Assign default institution role ONLY if new user
-    // --------------------------------------------------
+
     if (!userWasExisting) {
       const institutionAdminRole = await prisma.role.findFirst({
         where: {
@@ -305,9 +293,7 @@ export async function generateInviteHandler(
       });
     }
 
-    // --------------------------------------------------
-    // 3️⃣ Create one-time invite token
-    // --------------------------------------------------
+
     const { token: rawToken, hash: tokenHash } = AuthService.generateToken();
     const expiresAt = new Date(
       Date.now() + config.auth.otpExpiryMinutes * 60 * 1000
@@ -464,10 +450,10 @@ export async function changePasswordHandler(
 
     const roles = Serializer.serializeRoles(userWithRoles);
 
-    // 🔐 Hash password
+    //  Hash password
     const passwordHash = await AuthService.hashPassword(newPassword);
 
-    // ✅ Update user
+    //  Update user
     await prisma.user.update({
       where: { id: userId },
       data: {
@@ -477,13 +463,13 @@ export async function changePasswordHandler(
       },
     });
 
-    // 🔒 Invalidate all tokens
+    //  Invalidate all tokens
     await prisma.authToken.updateMany({
       where: { userId, usedAt: null },
       data: { usedAt: new Date() },
     });
     const permissions = await resolveUserPermissions(prisma, userId);
-    // 🎟 FINAL JWT
+    //  FINAL JWT
     const finalJwt = AuthService.signJwt({
       sub: payload.sub,
       email: payload.email,
@@ -491,7 +477,7 @@ export async function changePasswordHandler(
       permissions,
     });
 
-    // 🍪 SET COOKIE (IMPORTANT)
+    //  SET COOKIE 
     CookieManager.setAuthToken(reply, finalJwt);
 
     logger.audit({
@@ -504,7 +490,6 @@ export async function changePasswordHandler(
       userAgent: request.headers['user-agent'],
     });
 
-    // ✅ NO TOKEN IN RESPONSE
     return reply.send({
       success: true,
       message: 'Password updated successfully',

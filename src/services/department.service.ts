@@ -17,9 +17,6 @@ export interface UpdateDepartmentInput {
   hodUserId?: number | null;
 }
 
-/**
- * LIST DEPARTMENTS
- */
 export async function getDepartments(
   prisma: PrismaClient,
   institutionId: number,
@@ -33,7 +30,7 @@ export async function getDepartments(
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
 
-        // ✅ THIS is the correct filter
+        
         isSystemRole: false,
 
         name: { contains: search, mode: 'insensitive' },
@@ -63,9 +60,7 @@ export async function getDepartments(
 
 
 
-/**
- * CREATE DEPARTMENT
- */
+
 export async function createDepartment(
   prisma: PrismaClient,
   institutionId: number,
@@ -136,9 +131,7 @@ export async function createDepartment(
   });
 }
 
-/**
- * UPDATE DEPARTMENT
- */
+
 export async function updateDepartment(
   prisma: PrismaClient,
   departmentId: number,

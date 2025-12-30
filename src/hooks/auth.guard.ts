@@ -6,14 +6,14 @@ import { UnauthorizedError } from '../utils/errors';
 export async function authGuard(request: FastifyRequest) {
   let token: string | undefined;
 
-  // 1️⃣ Authorization header (Postman / Mobile / Swagger)
+  // 1️ Authorization header 
   if (request.headers.authorization) {
     token = AuthService.extractTokenFromHeader(
       request.headers.authorization
     );
   }
 
-  // 2️⃣ Cookie (Browser flow)
+  // 2 Cookie 
   if (!token) {
     token = CookieManager.getAuthToken(request);
   }

@@ -31,9 +31,7 @@ export async function createSuperAdmin(
       userAgent: request.headers['user-agent'],
     });
 
-    /* ─────────────────────────────
-       ENVIRONMENT GUARD
-    ───────────────────────────── */
+
     if (!config.auth.allowSuperAdminCreation) {
       logger.warn('Super admin creation blocked by config', {
         env: config.nodeEnv,
@@ -43,9 +41,7 @@ export async function createSuperAdmin(
       );
     }
 
-    /* ─────────────────────────────
-       VALIDATION
-    ───────────────────────────── */
+
     const parsed = CreateSuperAdminSchema.safeParse(request.body);
     if (!parsed.success) {
       throw new ValidationError(
@@ -57,9 +53,7 @@ export async function createSuperAdmin(
     const { email, password, firstName, lastName } = parsed.data;
     const prisma = request.prisma;
 
-    /* ─────────────────────────────
-       DUPLICATE CHECK
-    ───────────────────────────── */
+
     const existing = await prisma.user.findFirst({ where: { email } });
     if (existing) {
       throw new ConflictError(
@@ -67,9 +61,7 @@ export async function createSuperAdmin(
       );
     }
 
-    /* ─────────────────────────────
-       CREATE USER
-    ───────────────────────────── */
+
     const passwordHash = await AuthService.hashPassword(password);
 
     const created = await prisma.user.create({
@@ -83,9 +75,7 @@ export async function createSuperAdmin(
       },
     });
 
-    /* ─────────────────────────────
-       ASSIGN SUPER ADMIN ROLE
-    ───────────────────────────── */
+
     const superRole = await prisma.role.findFirst({
       where: {
         name: 'Super Admin',
@@ -108,9 +98,7 @@ export async function createSuperAdmin(
       },
     });
 
-    /* ─────────────────────────────
-       LOAD USER WITH ROLES
-    ───────────────────────────── */
+
     const userWithRoles = await prisma.user.findUnique({
       where: { id: created.id },
       include: {
@@ -122,9 +110,7 @@ export async function createSuperAdmin(
 
     const roles = Serializer.serializeRoles(userWithRoles);
 
-    /* ─────────────────────────────
-       JWT
-    ───────────────────────────── */
+
     const payload = {
       sub: Serializer.bigIntToString(created.id),
       email: created.email,
@@ -148,9 +134,7 @@ export async function createSuperAdmin(
       user: Serializer.user(created),
     });
   } catch (error: any) {
-    /* ─────────────────────────────
-       PRISMA ERROR MAPPING
-    ───────────────────────────── */
+
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       logger.error('Prisma error during super admin creation', error);
 
@@ -165,9 +149,7 @@ export async function createSuperAdmin(
       );
     }
 
-    /* ─────────────────────────────
-       ZOD / CUSTOM ERRORS
-    ───────────────────────────── */
+
     if (
       error instanceof ValidationError ||
       error instanceof ConflictError ||
@@ -176,9 +158,7 @@ export async function createSuperAdmin(
       throw error;
     }
 
-    /* ─────────────────────────────
-       FALLBACK
-    ───────────────────────────── */
+
     logger.error('Unexpected error in createSuperAdmin', error, {
       ip: request.ip,
     });

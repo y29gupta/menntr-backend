@@ -168,7 +168,7 @@ model Role {
   id   Int    @id @default(autoincrement())
   name String
 
-  code String? @map("code") // ✅ ADD THIS
+  code String? @map("code")
 
   institutionId   Int? @map("institution_id")
   parentId        Int? @map("parent_id")
