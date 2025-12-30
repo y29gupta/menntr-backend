@@ -265,3 +265,62 @@ export async function updateDepartment(
   });
 }
 
+
+export async function getDepartmentMeta(
+  prisma: PrismaClient,
+  institutionId: number
+) {
+  const [categories, hodUsers] = await Promise.all([
+    // ✅ Parent Categories
+    prisma.role.findMany({
+      where: {
+        institutionId,
+        roleHierarchyId: CATEGORY_LEVEL,
+        isSystemRole: false,
+        code: { not: null },
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+      orderBy: { name: 'asc' },
+    }),
+
+    // ✅ ONLY users who HAVE the HOD role
+    prisma.userRole.findMany({
+      where: {
+        role: {
+          name: 'HOD',
+          institutionId,
+        },
+      },
+      select: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: {
+        user: { firstName: 'asc' },
+      },
+    }),
+  ]);
+
+  return {
+    categories: categories.map((c) => ({
+      id: c.id.toString(),
+      name: c.name,
+    })),
+
+    hodUsers: hodUsers.map((ur) => ({
+      id: ur.user.id.toString(),
+      name: `${ur.user.firstName ?? ''} ${ur.user.lastName ?? ''}`.trim(),
+      email: ur.user.email,
+    })),
+  };
+}
+

@@ -7,6 +7,7 @@ import {
   getDepartments,
   createDepartment,
   updateDepartment,
+  getDepartmentMeta,
 } from '../services/department.service';
 import { Serializer } from '../utils/serializers';
 import { ValidationError, ForbiddenError } from '../utils/errors';
@@ -121,3 +122,42 @@ export async function editDepartment(
 
   reply.send(updated);
 }
+
+export async function departmentMeta(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const prisma = req.prisma;
+  const authUser = (req as any).user;
+
+  if (!authUser?.sub) {
+    throw new ForbiddenError('Unauthorized');
+  }
+
+  const userId = BigInt(authUser.sub);
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      institutionId: true,
+      roles: { include: { role: true } },
+    },
+  });
+
+  if (!user?.institutionId) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  // 🔐 Only admins can assign HOD
+  const allowed = user.roles.some((r: any) =>
+    ['Institution Admin', 'Category Admin'].includes(r.role.name)
+  );
+
+  if (!allowed) {
+    throw new ForbiddenError('Insufficient permissions');
+  }
+
+  const meta = await getDepartmentMeta(prisma, user.institutionId);
+  reply.send(meta);
+}
+
