@@ -11,6 +11,10 @@ import {
 
 import { ForbiddenError } from '../utils/errors';
 
+
+const CATEGORY_LEVEL = 2;
+const DEPARTMENT_LEVEL = 3;
+
 export async function getHierarchy(
   req: FastifyRequest,
   reply: FastifyReply
@@ -27,55 +31,75 @@ export async function getHierarchy(
     throw new ForbiddenError('No institution linked');
   }
 
-  // 1️⃣ Institution Admin (ROOT)
-  const institutionAdmin = await prisma.role.findFirst({
+  // Institution Admin (always one)
+  const institution = await prisma.role.findFirst({
     where: {
       institutionId: user.institutionId,
       roleHierarchyId: 1,
     },
-    select: {
-      id: true,
-      name: true,
-    },
+    select: { id: true, name: true },
   });
 
-  if (!institutionAdmin) {
-    return reply.send({ institution: null, categories: [] });
+  if (!institution) {
+    throw new Error('Institution Admin role missing');
   }
 
-  // 2️⃣ Categories
+  // Fetch categories + departments
   const categories = await prisma.role.findMany({
     where: {
       institutionId: user.institutionId,
-      roleHierarchyId: 2,
+      roleHierarchyId: CATEGORY_LEVEL,
       code: { not: null },
     },
     include: {
       children: {
         where: {
-          roleHierarchyId: 3,
+          roleHierarchyId: DEPARTMENT_LEVEL,
           code: { not: null },
         },
-        select: {
-          id: true,
-          name: true,
-        },
+        select: { id: true, name: true },
         orderBy: { name: 'asc' },
       },
     },
     orderBy: { name: 'asc' },
   });
 
-  reply.send({
+  // 🔹 If NO categories → return STATIC skeleton
+  if (categories.length === 0) {
+    return reply.send({
+      institution: {
+        id: institution.id,
+        name: institution.name,
+        children: [
+          {
+            id: null,
+            name: 'Category',
+            children: [
+              {
+                id: null,
+                name: 'Department',
+              },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
+  // 🔹 Categories exist → overlay real data
+  return reply.send({
     institution: {
-      id: institutionAdmin.id,
-      name: institutionAdmin.name,
+      id: institution.id,
+      name: institution.name,
+      children: categories.map((c:any) => ({
+        id: c.id,
+        name: c.name,
+        children:
+          c.children.length > 0
+            ? c.children
+            : [{ id: null, name: 'Department' }],
+      })),
     },
-    categories: categories.map((c: any) => ({
-      id: c.id,
-      name: c.name,
-      departments: c.children,
-    })),
   });
 }
 
