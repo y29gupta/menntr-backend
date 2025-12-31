@@ -11,6 +11,7 @@ import {
 
 import { ForbiddenError } from '../utils/errors';
 import { buildOrganizationHierarchy } from '../services/organizationHierarchy.service';
+import { buildOrganizationTree } from '../services/organizationTree.service';
 
 
 const CATEGORY_LEVEL = 2;
@@ -128,4 +129,29 @@ export async function deleteNode(
   });
 
   reply.status(204).send();
+}
+
+
+export async function getOrganizationTree(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const prisma = req.prisma;
+  const userId = BigInt((req as any).user.sub);
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { institutionId: true },
+  });
+
+  if (!user?.institutionId) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const tree = await buildOrganizationTree(
+    prisma,
+    user.institutionId
+  );
+
+  reply.send(tree);
 }

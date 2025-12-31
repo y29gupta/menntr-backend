@@ -4,6 +4,7 @@ import {
   addDepartment,
   moveNode,
   deleteNode,
+  getOrganizationTree,
 } from '../controllers/organization.controller';
 import { authGuard } from '../hooks/auth.guard';
 
@@ -13,8 +14,14 @@ app.get(
   { preHandler: [authGuard] },
   getHierarchy
 );
-  app.post('/organization/category', addCategory);
-  app.post('/organization/department', addDepartment);
-  app.put('/organization/hierarchy/:id/move', moveNode);
-  app.delete('/organization/hierarchy/:id', deleteNode);
+
+app.get(
+  '/organization/tree',
+  { preHandler: [authGuard] },
+  getOrganizationTree
+);
+  // app.post('/organization/category', addCategory);
+  // app.post('/organization/department', addDepartment);
+  // app.put('/organization/hierarchy/:id/move', moveNode);
+  // app.delete('/organization/hierarchy/:id', deleteNode);
 }
