@@ -1,5 +1,4 @@
-﻿// src/controllers/institution.controller.ts
-import type { FastifyRequest, FastifyReply } from 'fastify';
+﻿import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { ValidationError, ConflictError, ForbiddenError, UnauthorizedError } from '../utils/errors';
 import { Logger } from '../utils/logger';
@@ -60,25 +59,25 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
 
     const { name, code, subdomain, contactEmail, planId } = parsed.data;
     const prisma = request.prisma;
-    const existing = await prisma.institution.findFirst({
-      where: {
-        OR: [{ code }, { subdomain: subdomain ?? undefined }],
-      },
-    });
+    // const existing = await prisma.institution.findFirst({
+    //   where: {
+    //     OR: [{ code }, { subdomain: subdomain ?? undefined }],
+    //   },
+    // });
 
-    if (existing) {
-      if (existing.code === code) {
-        throw new ConflictError('Institution with this code already exists');
-      }
-      if (existing.subdomain === subdomain) {
-        throw new ConflictError('Institution with this subdomain already exists');
-      }
-    }
+    // if (existing) {
+    //   if (existing.code === code) {
+    //     throw new ConflictError('Institution with this code already exists');
+    //   }
+    //   if (existing.subdomain === subdomain) {
+    //     throw new ConflictError('Institution with this subdomain already exists');
+    //   }
+    // }
     const inst = await prisma.institution.create({
       data: {
         name,
         code,
-        subdomain,
+        // subdomain,
         contactEmail,
         planId: planId ?? null,
         status: 'active',
@@ -104,7 +103,7 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
   }
 }
 
-// After creating institution
+
 export async function createInstitutionAdminHandler(request: FastifyRequest, reply: FastifyReply) {
   const logger = new Logger(request.log);
 
@@ -189,7 +188,7 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
 
 export async function updateInstitutionPutHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
-    // ✅ Validate URL params
+    //  Validate URL params
     const paramsParsed = InstitutionIdParamsSchema.safeParse(request.params);
     if (!paramsParsed.success) {
       return reply.code(400).send({
@@ -198,7 +197,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
       });
     }
 
-    // ✅ Validate body (FULL replacement)
+
     const bodyParsed = UpdateInstitutionPutBody.safeParse(request.body);
     if (!bodyParsed.success) {
       return reply.code(400).send({
@@ -210,7 +209,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
     const { id } = paramsParsed.data;
     const prisma = request.prisma;
 
-    // ✅ Check if institution exists
+    //  Check if institution exists
     const existingInstitution = await prisma.institution.findUnique({
       where: { id },
     });
@@ -221,7 +220,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
       });
     }
 
-    // ✅ PUT = full replacement update
+
     const updatedInstitution = await prisma.institution.update({
       where: { id },
       data: {
@@ -237,7 +236,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
   } catch (err: any) {
     request.server.log.error({ err }, 'updateInstitutionPutHandler failed');
 
-    // ✅ Handle unique constraint violation
+    //  Handle unique constraint violation
     if (err?.code === 'P2002') {
       return reply.code(409).send({
         error: 'Duplicate value violates unique constraint',

@@ -1,4 +1,3 @@
-// services/module.service.ts
 export class ModuleService {
   static async createModule(prisma:any, data:any) {
     return prisma.module.create({

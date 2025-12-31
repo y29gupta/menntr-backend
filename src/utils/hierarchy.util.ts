@@ -1,4 +1,3 @@
-// src/utils/hierarchy.util.ts
 
 import { Role } from '@prisma/client';
 

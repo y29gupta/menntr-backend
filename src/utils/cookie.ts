@@ -52,7 +52,7 @@ export class CookieManager {
   }
 
   static clearAuthCookies(reply: FastifyReply) {
-    // ✅ FIXED: Must match the options used when setting the cookie
+    //  FIXED: Must match the options used when setting the cookie
     const clearOptions: CookieOptions = {
       httpOnly: true,
       secure: false,

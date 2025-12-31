@@ -1,4 +1,3 @@
-// src/types/hierarchy.types.ts
 
 export type AddCategoryBody = {
   name: string;

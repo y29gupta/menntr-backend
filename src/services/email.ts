@@ -11,6 +11,7 @@ interface InviteData {
   inviteLink: string;
   inviterName?: string;
   institutionName?: string;
+  institutionCode?: string;
   role?: string;
 }
 
@@ -20,11 +21,9 @@ export class EmailService {
     // private inviteMailer: Transporter // SMTP (invite@)
   ) {}
 
-  /**
-   * Generate HTML template based on invite type
-   */
+
   private generateInviteTemplate(type: InviteType, data: InviteData): string {
-    const { recipientName, inviteLink, inviterName, institutionName, role } = data;
+    const { recipientName, inviteLink, inviterName, institutionName, institutionCode, role } = data;
     const expiryMinutes = config.auth.otpExpiryMinutes;
 
     // Common styles
@@ -55,7 +54,7 @@ export class EmailService {
             </div>
             <div class="content">
               <p>Hi ${recipientName || 'there'},</p>
-              
+              <p>Institution Code: ${institutionCode}</p>
               <p>You have been invited to join <strong>MENNTR</strong> as an institutional partner.</p>
               
               <div class="info-box">
@@ -138,9 +137,7 @@ export class EmailService {
     }
   }
 
-  /**
-   * Get role-specific description
-   */
+
   private getRoleDescription(type: InviteType): string {
     const descriptions = {
       hod: `
@@ -172,10 +169,7 @@ export class EmailService {
     return descriptions[type] || '';
   }
 
-  /**
-   * MAIN INVITATION METHOD → SMTP (invite@pathaxiom.com)
-   * Now supports multiple invite types with dynamic templates
-   */
+
   async sendInvite(
     to: string,
     link: string,
@@ -188,6 +182,7 @@ export class EmailService {
         inviteLink: link,
         inviterName: data.inviterName,
         institutionName: data.institutionName,
+        institutionCode: data.institutionCode,
         role: data.role,
       };
 
@@ -233,18 +228,12 @@ export class EmailService {
     }
   }
 
-  /**
-   * LEGACY METHOD - Backward compatibility
-   * Use sendInvite() with type parameter instead
-   */
+
   async sendInstitutionInvite(to: string, link: string, name?: string): Promise<void> {
     return this.sendInvite(to, link, 'institution', { recipientName: name });
   }
 
-  /**
-   * OTHER EMAILS → ACS (DoNotReply@pathaxiom.com)
-   * ⚠️ NOT MODIFIED
-   */
+
   async sendSystemEmail(to: string, subject: string, html: string): Promise<void> {
     try {
       const message = {
@@ -263,10 +252,7 @@ export class EmailService {
     }
   }
 
-  /**
-   * PASSWORD RESET EMAIL
-   * Uses ACS (DoNotReply@pathaxiom.com)
-   */
+
   async sendPasswordReset(to: string, resetLink: string, name?: string): Promise<void> {
     const expiryMinutes = config.auth.resetTokenExpiryMinutes;
 
@@ -314,9 +300,7 @@ export class EmailService {
       throw new AppError('Failed to send password reset email', 500);
     }
   }
-  /**
-   * PASSWORD CHANGED CONFIRMATION EMAIL
-   */
+
   async sendPasswordChangedNotification(to: string): Promise<void> {
     const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto;">

@@ -1,9 +1,15 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { AuthService } from '../services/auth';
 import { Serializer } from '../utils/serializers';
 import { Logger } from '../utils/logger';
-import { ForbiddenError, ConflictError, ValidationError } from '../utils/errors';
+import {
+  ForbiddenError,
+  ConflictError,
+  ValidationError,
+  InternalServerError,
+} from '../utils/errors';
 import { config } from '../config';
 
 const CreateSuperAdminSchema = z.object({
@@ -13,7 +19,10 @@ const CreateSuperAdminSchema = z.object({
   lastName: z.string().optional(),
 });
 
-export async function createSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
+export async function createSuperAdmin(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
   const logger = new Logger(request.log);
 
   try {
@@ -22,25 +31,36 @@ export async function createSuperAdmin(request: FastifyRequest, reply: FastifyRe
       userAgent: request.headers['user-agent'],
     });
 
+
     if (!config.auth.allowSuperAdminCreation) {
-      logger.warn('Super admin creation attempt blocked', { env: config.nodeEnv });
-      throw new ForbiddenError('Super admin creation is not allowed in this environment');
+      logger.warn('Super admin creation blocked by config', {
+        env: config.nodeEnv,
+      });
+      throw new ForbiddenError(
+        'Super admin creation is disabled in this environment'
+      );
     }
+
 
     const parsed = CreateSuperAdminSchema.safeParse(request.body);
     if (!parsed.success) {
-      // FIXED: Use 'issues' instead of 'errors'
-      throw new ValidationError('Invalid request', parsed.error.issues);
+      throw new ValidationError(
+        'Invalid request payload',
+        parsed.error.issues
+      );
     }
 
     const { email, password, firstName, lastName } = parsed.data;
     const prisma = request.prisma;
 
+
     const existing = await prisma.user.findFirst({ where: { email } });
     if (existing) {
-      logger.warn('Super admin creation failed - user exists', { email });
-      throw new ConflictError('User already exists');
+      throw new ConflictError(
+        'An account with this email already exists'
+      );
     }
+
 
     const passwordHash = await AuthService.hashPassword(password);
 
@@ -55,24 +75,30 @@ export async function createSuperAdmin(request: FastifyRequest, reply: FastifyRe
       },
     });
 
-    // Assign super admin role
-    try {
-      const superRole = await prisma.role.findFirst({
-        where: { isSystemRole: true, name: 'Super Admin' },
-      });
 
-      if (superRole) {
-        await prisma.userRole.create({
-          data: {
-            userId: created.id,
-            roleId: superRole.id,
-            assignedBy: created.id,
-          },
-        });
-      }
-    } catch (err) {
-      logger.warn('Failed to auto-assign super role', { error: err });
+    const superRole = await prisma.role.findFirst({
+      where: {
+        name: 'Super Admin',
+        isSystemRole: true,
+      },
+    });
+
+    if (!superRole) {
+      logger.error('Super Admin role missing in database');
+      throw new InternalServerError(
+        'System misconfiguration: Super Admin role not found'
+      );
     }
+
+    await prisma.userRole.create({
+      data: {
+        userId: created.id,
+        roleId: superRole.id,
+        assignedBy: created.id,
+      },
+    });
+
+
     const userWithRoles = await prisma.user.findUnique({
       where: { id: created.id },
       include: {
@@ -84,12 +110,14 @@ export async function createSuperAdmin(request: FastifyRequest, reply: FastifyRe
 
     const roles = Serializer.serializeRoles(userWithRoles);
 
+
     const payload = {
       sub: Serializer.bigIntToString(created.id),
       email: created.email,
       roles: roles.map((r: any) => r.name),
     };
-    const jwtToken = AuthService.signJwt(payload); // FIXED: Renamed to avoid conflict
+
+    const jwtToken = AuthService.signJwt(payload);
 
     logger.audit({
       userId: payload.sub,
@@ -102,13 +130,41 @@ export async function createSuperAdmin(request: FastifyRequest, reply: FastifyRe
     });
 
     return reply.code(201).send({
-      token: jwtToken, // FIXED: Use renamed variable
+      token: jwtToken,
       user: Serializer.user(created),
     });
-  } catch (error) {
-    logger.error('createSuperAdmin failed', error as Error, {
+  } catch (error: any) {
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      logger.error('Prisma error during super admin creation', error);
+
+      if (error.code === 'P2002') {
+        throw new ConflictError(
+          'An account with this email already exists'
+        );
+      }
+
+      throw new InternalServerError(
+        'Database operation failed while creating super admin'
+      );
+    }
+
+
+    if (
+      error instanceof ValidationError ||
+      error instanceof ConflictError ||
+      error instanceof ForbiddenError
+    ) {
+      throw error;
+    }
+
+
+    logger.error('Unexpected error in createSuperAdmin', error, {
       ip: request.ip,
     });
-    throw error;
+
+    throw new InternalServerError(
+      'Something went wrong while creating super admin'
+    );
   }
 }

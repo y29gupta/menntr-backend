@@ -1,4 +1,3 @@
-// src/routes/institutions.ts
 import { FastifyInstance } from 'fastify';
 import {
   createInstitutionAdminHandler,

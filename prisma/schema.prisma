@@ -168,9 +168,11 @@ model Role {
   id   Int    @id @default(autoincrement())
   name String
 
+  code String? @map("code")
+
   institutionId   Int? @map("institution_id")
   parentId        Int? @map("parent_id")
-  roleHierarchyId Int? @map("role_hierarchy_id") // 👈 MUST EXIST
+  roleHierarchyId Int? @map("role_hierarchy_id")
 
   isSystemRole Boolean @default(false) @map("is_system_role")
 
@@ -188,6 +190,7 @@ model Role {
 
   @@map("roles")
 }
+
 
 model RolePermission {
   roleId       Int @map("role_id")

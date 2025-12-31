@@ -1,4 +1,3 @@
-// services/feature.service.ts
 export class FeatureService {
   static async createFeature(prisma:any, data:any) {
     return prisma.feature.create({
