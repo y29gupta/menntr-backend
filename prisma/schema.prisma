@@ -6,11 +6,207 @@ datasource db {
   provider = "postgresql"
 }
 
-/**
- * =========================
- * ENUMS
- * =========================
- */
+model Plan {
+  id                   Int           @id @default(autoincrement())
+  code                 String        @unique
+  name                 String
+  priceMonthly         Decimal?      @map("price_monthly")
+  priceYearly          Decimal?      @map("price_yearly")
+  maxStudents          Int?          @map("max_students")
+  isPublic             Boolean       @default(true) @map("is_public")
+  description          String?
+  createdAt            DateTime      @default(now()) @map("created_at")
+  storage_gb           Int?          @default(1)
+  ai_queries_per_month Int?          @default(0)
+  institutions         Institution[]
+  planModules          PlanModule[]
+
+  @@map("plans")
+}
+
+model Module {
+  id             Int                 @id @default(autoincrement())
+  code           String              @unique
+  name           String
+  description    String?
+  icon           String?
+  category       String?
+  isCore         Boolean             @default(false) @map("is_core")
+  isSystemModule Boolean             @default(false) @map("is_system_module")
+  sortOrder      Int                 @default(0) @map("sort_order")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  features       Feature[]
+  institutions   InstitutionModule[]
+  planModules    PlanModule[]
+
+  @@map("modules")
+}
+
+model Feature {
+  id              Int      @id @default(autoincrement())
+  code            String   @unique
+  name            String
+  description     String?
+  moduleId        Int      @map("module_id")
+  minPlanRequired String?  @map("min_plan_required")
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  module          Module   @relation(fields: [moduleId], references: [id])
+
+  @@map("features")
+}
+
+model PlanModule {
+  planId   Int     @map("plan_id")
+  moduleId Int     @map("module_id")
+  included Boolean @default(true)
+  module   Module  @relation(fields: [moduleId], references: [id])
+  plan     Plan    @relation(fields: [planId], references: [id])
+
+  @@id([planId, moduleId])
+  @@map("plan_modules")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model PlanFeature {
+  plan_code    String
+  feature_code String
+  included     Boolean @default(true)
+  usageLimit   Int?    @map("usage_limit")
+
+  @@map("plan_features")
+  @@ignore
+}
+
+model Institution {
+  id           Int                 @id @default(autoincrement())
+  name         String
+  code         String              @unique
+  subdomain    String?
+  contactEmail String              @map("contact_email")
+  planId       Int?                @map("plan_id")
+  status       InstitutionStatus   @default(active)
+  trialEndsAt  DateTime?           @map("trial_ends_at")
+  metadata     Json                @default("{}")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+  modules      InstitutionModule[]
+  plan         Plan?               @relation(fields: [planId], references: [id])
+  roles        Role[]
+  users        User[]
+
+  @@map("institutions")
+}
+
+model InstitutionModule {
+  institutionId Int         @map("institution_id")
+  moduleId      Int         @map("module_id")
+  enabled       Boolean     @default(true)
+  configuredAt  DateTime    @default(now()) @map("configured_at")
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  module        Module      @relation(fields: [moduleId], references: [id])
+
+  @@id([institutionId, moduleId])
+  @@map("institution_modules")
+}
+
+model Permission {
+  id              Int              @id @default(autoincrement())
+  feature_code    String
+  permission_code String
+  permission_name String
+  actionType      String?          @map("action_type")
+  description     String?
+  createdAt       DateTime         @default(now()) @map("created_at")
+  roles           RolePermission[]
+
+  @@map("permissions")
+}
+
+model Role {
+  id                Int              @id @default(autoincrement())
+  name              String
+  institutionId     Int?             @map("institution_id")
+  parentId          Int?             @map("parent_id")
+  isSystemRole      Boolean          @default(false) @map("is_system_role")
+  description       String?
+  createdAt         DateTime         @default(now()) @map("created_at")
+  role_hierarchy_id Int?
+  permissions       RolePermission[]
+  institution       Institution?     @relation(fields: [institutionId], references: [id])
+  parent            Role?            @relation("RoleTree", fields: [parentId], references: [id])
+  children          Role[]           @relation("RoleTree")
+  users             UserRole[]
+
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       Int        @map("role_id")
+  permissionId Int        @map("permission_id")
+  permission   Permission @relation(fields: [permissionId], references: [id])
+  role         Role       @relation(fields: [roleId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id                 BigInt       @id @default(autoincrement())
+  institutionId      Int?         @map("institution_id")
+  email              String
+  passwordHash       String?      @map("password_hash")
+  emailVerified      Boolean      @default(false) @map("email_verified")
+  mustChangePassword Boolean      @default(true) @map("must_change_password")
+  firstName          String?      @map("first_name")
+  lastName           String?      @map("last_name")
+  avatarUrl          String?      @map("avatar_url")
+  status             UserStatus   @default(active)
+  lastLoginAt        DateTime?    @map("last_login_at")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  tokens             AuthToken[]
+  roles              UserRole[]
+  institution        Institution? @relation(fields: [institutionId], references: [id])
+
+  @@unique([email, institutionId])
+  @@map("users")
+}
+
+model UserRole {
+  userId     BigInt   @map("user_id")
+  roleId     Int      @map("role_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  assignedBy BigInt?  @map("assigned_by")
+  role       Role     @relation(fields: [roleId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model AuthToken {
+  id        Int       @id @default(autoincrement())
+  userId    BigInt    @map("user_id")
+  tokenHash String    @map("token_hash")
+  type      TokenType
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("auth_tokens")
+}
+
+model role_hierarchy {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  level       Int
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime
+}
 
 enum UserStatus {
   active
@@ -29,215 +225,16 @@ enum TokenType {
   refresh
 }
 
-/**
- * =========================
- * MODELS
- * =========================
- */
-
-model Plan {
-  id           Int      @id @default(autoincrement())
-  code         String   @unique
-  name         String
-  priceMonthly Decimal? @map("price_monthly")
-  priceYearly  Decimal? @map("price_yearly")
-  maxStudents  Int?     @map("max_students")
-  isPublic     Boolean  @default(true) @map("is_public")
-  description  String?
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  institutions Institution[]
-  planModules  PlanModule[]
-  planFeatures PlanFeature[]
-
-  @@map("plans")
+model InstitutionMember {
+  id           Int     @id @default(autoincrement())
+  firstName    String
+  lastName     String
+  email        String   @unique
+  phoneNumber  String
+  profilePhoto String?  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
-model Module {
-  id             Int      @id @default(autoincrement())
-  code           String   @unique
-  name           String
-  description    String?
-  icon           String?
-  category       String?
-  isCore         Boolean  @default(false) @map("is_core")
-  isSystemModule Boolean  @default(false) @map("is_system_module")
-  sortOrder      Int      @default(0) @map("sort_order")
-  createdAt      DateTime @default(now()) @map("created_at")
 
-  features     Feature[]
-  planModules  PlanModule[]
-  institutions InstitutionModule[]
 
-  @@map("modules")
-}
-
-model Feature {
-  id              Int      @id @default(autoincrement())
-  code            String   @unique
-  name            String
-  description     String?
-  moduleId        Int      @map("module_id")
-  minPlanRequired String?  @map("min_plan_required")
-  sortOrder       Int      @default(0) @map("sort_order")
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  module       Module        @relation(fields: [moduleId], references: [id])
-  permissions  Permission[]
-  planFeatures PlanFeature[]
-
-  @@map("features")
-}
-
-model PlanModule {
-  planId   Int     @map("plan_id")
-  moduleId Int     @map("module_id")
-  included Boolean @default(true)
-
-  plan   Plan   @relation(fields: [planId], references: [id])
-  module Module @relation(fields: [moduleId], references: [id])
-
-  @@id([planId, moduleId])
-  @@map("plan_modules")
-}
-
-model PlanFeature {
-  planId     Int     @map("plan_id")
-  featureId  Int     @map("feature_id")
-  included   Boolean @default(true)
-  usageLimit Int?    @map("usage_limit")
-
-  plan    Plan    @relation(fields: [planId], references: [id])
-  feature Feature @relation(fields: [featureId], references: [id])
-
-  @@id([planId, featureId])
-  @@map("plan_features")
-}
-
-model Institution {
-  id           Int               @id @default(autoincrement())
-  name         String
-  code         String            @unique
-  subdomain    String?
-  contactEmail String            @map("contact_email")
-  planId       Int?              @map("plan_id")
-  status       InstitutionStatus @default(active)
-  trialEndsAt  DateTime?         @map("trial_ends_at")
-  metadata     Json              @default("{}")
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
-
-  plan    Plan?               @relation(fields: [planId], references: [id])
-  users   User[]
-  roles   Role[]
-  modules InstitutionModule[]
-
-  @@map("institutions")
-}
-
-model InstitutionModule {
-  institutionId Int      @map("institution_id")
-  moduleId      Int      @map("module_id")
-  enabled       Boolean  @default(true)
-  configuredAt  DateTime @default(now()) @map("configured_at")
-
-  institution Institution @relation(fields: [institutionId], references: [id])
-  module      Module      @relation(fields: [moduleId], references: [id])
-
-  @@id([institutionId, moduleId])
-  @@map("institution_modules")
-}
-
-model Permission {
-  id          Int      @id @default(autoincrement())
-  code        String   @unique
-  name        String
-  featureId   Int      @map("feature_id")
-  actionType  String?  @map("action_type")
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  feature Feature          @relation(fields: [featureId], references: [id])
-  roles   RolePermission[]
-
-  @@map("permissions")
-}
-
-model Role {
-  id            Int      @id @default(autoincrement())
-  name          String
-  institutionId Int?     @map("institution_id")
-  parentId      Int?     @map("parent_id")
-  isSystemRole  Boolean  @default(false) @map("is_system_role")
-  description   String?
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  institution Institution?     @relation(fields: [institutionId], references: [id])
-  parent      Role?            @relation("RoleTree", fields: [parentId], references: [id])
-  children    Role[]           @relation("RoleTree")
-  users       UserRole[]
-  permissions RolePermission[]
-
-  @@map("roles")
-}
-
-model RolePermission {
-  roleId       Int @map("role_id")
-  permissionId Int @map("permission_id")
-
-  role       Role       @relation(fields: [roleId], references: [id])
-  permission Permission @relation(fields: [permissionId], references: [id])
-
-  @@id([roleId, permissionId])
-  @@map("role_permissions")
-}
-
-model User {
-  id                 BigInt     @id @default(autoincrement())
-  institutionId      Int?       @map("institution_id")
-  email              String
-  passwordHash       String?    @map("password_hash")
-  emailVerified      Boolean    @default(false) @map("email_verified")
-  mustChangePassword Boolean    @default(true) @map("must_change_password")
-  firstName          String?    @map("first_name")
-  lastName           String?    @map("last_name")
-  avatarUrl          String?    @map("avatar_url")
-  status             UserStatus @default(active)
-  lastLoginAt        DateTime?  @map("last_login_at")
-  createdAt          DateTime   @default(now()) @map("created_at")
-  updatedAt          DateTime   @updatedAt @map("updated_at")
-
-  institution Institution? @relation(fields: [institutionId], references: [id])
-  roles       UserRole[]
-  tokens      AuthToken[]
-
-  @@unique([email, institutionId])
-  @@map("users")
-}
-
-model UserRole {
-  userId     BigInt   @map("user_id")
-  roleId     Int      @map("role_id")
-  assignedAt DateTime @default(now()) @map("assigned_at")
-  assignedBy BigInt?  @map("assigned_by")
-
-  user User @relation(fields: [userId], references: [id])
-  role Role @relation(fields: [roleId], references: [id])
-
-  @@id([userId, roleId])
-  @@map("user_roles")
-}
-
-model AuthToken {
-  id        Int       @id @default(autoincrement())
-  userId    BigInt    @map("user_id")
-  tokenHash String    @map("token_hash")
-  type      TokenType
-  expiresAt DateTime  @map("expires_at")
-  usedAt    DateTime? @map("used_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("auth_tokens")
-}

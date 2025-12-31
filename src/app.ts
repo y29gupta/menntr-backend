@@ -10,8 +10,11 @@ import institutionRoutes, { planRoutes } from './routes/institutions';
 import { errorHandler } from './middleware/errorHandler';
 import { config } from './config';
 import inviteMailer from './plugins/inviteMailer';
+import multipart from '@fastify/multipart';
+
 // import { requestUserPlugin } from './plugins/request-user-plugin';
 import authPlugin from './plugins/auth.plugin';
+import { institutionAdminRoutes } from './routes/institution.admin';
 
 export function buildApp() {
   const app = fastify({
@@ -29,8 +32,12 @@ export function buildApp() {
     },
   });
 
+  app.register(multipart, {
+    attachFieldsToBody: false,
+  });
+
   app.register(cors, {
-    origin: [config.frontendUrl, "https://menntr-frontend.netlify.app"],
+    origin: [config.frontendUrl, 'https://menntr-frontend.netlify.app'],
     credentials: true, // allow cookies
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -50,6 +57,7 @@ export function buildApp() {
   app.register(inviteMailer);
   // app.register(requestUserPlugin);
   app.register(authPlugin);
+
   // Request logging hook - track start time
   app.addHook('onRequest', async (request) => {
     (request as any).startTime = Date.now();
@@ -85,6 +93,7 @@ export function buildApp() {
   app.register(authRoutes, { prefix: '/auth' });
   app.register(institutionRoutes);
   app.register(planRoutes);
+  app.register(institutionAdminRoutes);
 
   // Health check endpoint
   app.get('/health', async () => {
