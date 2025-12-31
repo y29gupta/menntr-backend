@@ -1,14 +1,13 @@
-﻿// src/controllers/institution.controller.ts
-import type { FastifyRequest, FastifyReply } from 'fastify';
+﻿import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { ValidationError, ConflictError, ForbiddenError, UnauthorizedError } from '../utils/errors';
 import { Logger } from '../utils/logger';
 import { AuthService } from '../services/auth';
 import { Serializer } from '../utils/serializers';
 import { CookieManager } from '../utils/cookie';
-import { Prisma } from '@prisma/client';
+import { provisionInstitution } from '../services/institution.service';
 
-const CreateInstitutionBody = z.object({
+export const CreateInstitutionBody = z.object({
   name: z.string().min(2),
   code: z.string().min(2),
   subdomain: z.string().optional().nullable(),
@@ -18,9 +17,9 @@ const CreateInstitutionBody = z.object({
 
 const CreateInstitutionAdmin = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
-  firstName: z.string().min(6),
-  lastName: z.string().min(1),
+  password: z.string().min(8).optional(),
+  firstName: z.string().min(6).optional(),
+  lastName: z.string().min(1).optional(),
   institutionId: z.number().int(),
 });
 const GetPlanModulesParamsSchema = z.object({
@@ -32,7 +31,7 @@ const UpdateInstitutionPutBody = CreateInstitutionBody;
 const InstitutionIdParamsSchema = z.object({
   id: z.coerce.number(),
 });
-function serializeInstitution(inst: any) {
+export function serializeInstitution(inst: any) {
   // convert bigint id if present
   return {
     id: typeof inst.id === 'bigint' ? inst.id.toString() : inst.id,
@@ -60,30 +59,32 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
 
     const { name, code, subdomain, contactEmail, planId } = parsed.data;
     const prisma = request.prisma;
-    const existing = await prisma.institution.findFirst({
-      where: {
-        OR: [{ code }, { subdomain: subdomain ?? undefined }],
-      },
-    });
+    // const existing = await prisma.institution.findFirst({
+    //   where: {
+    //     OR: [{ code }, { subdomain: subdomain ?? undefined }],
+    //   },
+    // });
 
-    if (existing) {
-      if (existing.code === code) {
-        throw new ConflictError('Institution with this code already exists');
-      }
-      if (existing.subdomain === subdomain) {
-        throw new ConflictError('Institution with this subdomain already exists');
-      }
-    }
+    // if (existing) {
+    //   if (existing.code === code) {
+    //     throw new ConflictError('Institution with this code already exists');
+    //   }
+    //   if (existing.subdomain === subdomain) {
+    //     throw new ConflictError('Institution with this subdomain already exists');
+    //   }
+    // }
     const inst = await prisma.institution.create({
       data: {
         name,
         code,
-        subdomain,
+        // subdomain,
         contactEmail,
         planId: planId ?? null,
         status: 'active',
       },
     });
+    await provisionInstitution(prisma, inst.id, inst.planId);
+    
 
     logger.audit({
       userId: (request as any).user?.sub,
@@ -102,7 +103,7 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
   }
 }
 
-// After creating institution
+
 export async function createInstitutionAdminHandler(request: FastifyRequest, reply: FastifyReply) {
   const logger = new Logger(request.log);
 
@@ -124,11 +125,11 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
     const prisma = request.prisma;
 
     // Create user
-    const passwordHash = await AuthService.hashPassword(password);
+    // const passwordHash = await AuthService.hashPassword(password);
     const user = await prisma.user.create({
       data: {
         email,
-        passwordHash,
+        // passwordHash,
         firstName: firstName ?? null,
         lastName: lastName ?? null,
         institutionId: institutionId,
@@ -187,7 +188,7 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
 
 export async function updateInstitutionPutHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
-    // ✅ Validate URL params
+    //  Validate URL params
     const paramsParsed = InstitutionIdParamsSchema.safeParse(request.params);
     if (!paramsParsed.success) {
       return reply.code(400).send({
@@ -196,7 +197,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
       });
     }
 
-    // ✅ Validate body (FULL replacement)
+
     const bodyParsed = UpdateInstitutionPutBody.safeParse(request.body);
     if (!bodyParsed.success) {
       return reply.code(400).send({
@@ -208,7 +209,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
     const { id } = paramsParsed.data;
     const prisma = request.prisma;
 
-    // ✅ Check if institution exists
+    //  Check if institution exists
     const existingInstitution = await prisma.institution.findUnique({
       where: { id },
     });
@@ -219,7 +220,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
       });
     }
 
-    // ✅ PUT = full replacement update
+
     const updatedInstitution = await prisma.institution.update({
       where: { id },
       data: {
@@ -235,7 +236,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
   } catch (err: any) {
     request.server.log.error({ err }, 'updateInstitutionPutHandler failed');
 
-    // ✅ Handle unique constraint violation
+    //  Handle unique constraint violation
     if (err?.code === 'P2002') {
       return reply.code(409).send({
         error: 'Duplicate value violates unique constraint',

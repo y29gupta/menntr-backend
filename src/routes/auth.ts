@@ -7,15 +7,15 @@ import {
   changePasswordHandler,
   logoutHandler,
 } from '../controllers/auth.controller';
+import { authGuard } from '../hooks/auth.guard';
 
 export default async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/login', loginHandler);
   fastify.post('/logout', logoutHandler);
-  fastify.post('/invite', { preHandler: [(fastify as any).authenticate] }, generateInviteHandler);
+  fastify.post('/invite', generateInviteHandler);
   fastify.post('/consume-invite', consumeInviteHandler);
   fastify.post(
-    '/change-password',
-    { preHandler: [(fastify as any).authenticate] },
+    '/change-password', {preHandler:authGuard},
     changePasswordHandler
   );
 }

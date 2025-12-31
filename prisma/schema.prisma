@@ -6,6 +6,36 @@ datasource db {
   provider = "postgresql"
 }
 
+/**
+ * =========================
+ * ENUMS
+ * =========================
+ */
+
+enum UserStatus {
+  active
+  invited
+  disabled
+}
+
+enum InstitutionStatus {
+  active
+  trial
+  suspended
+}
+
+enum TokenType {
+  one_time_login
+  refresh
+  password_reset
+}
+
+/**
+ * =========================
+ * MODELS
+ * =========================
+ */
+
 model Plan {
   id                   Int           @id @default(autoincrement())
   code                 String        @unique
@@ -51,7 +81,10 @@ model Feature {
   minPlanRequired String?  @map("min_plan_required")
   sortOrder       Int      @default(0) @map("sort_order")
   createdAt       DateTime @default(now()) @map("created_at")
-  module          Module   @relation(fields: [moduleId], references: [id])
+
+  module       Module        @relation(fields: [moduleId], references: [id])
+  permissions  Permission[]  @relation("FeaturePermissions")
+  planFeatures PlanFeature[]
 
   @@map("features")
 }
@@ -111,35 +144,47 @@ model InstitutionModule {
 }
 
 model Permission {
-  id              Int              @id @default(autoincrement())
-  feature_code    String
-  permission_code String
-  permission_name String
-  actionType      String?          @map("action_type")
-  description     String?
-  createdAt       DateTime         @default(now()) @map("created_at")
-  roles           RolePermission[]
+  id             Int      @id @default(autoincrement())
+  featureCode    String   @map("feature_code")
+  permissionCode String   @map("permission_code")
+  permissionName String   @map("permission_name")
+  actionType     String?  @map("action_type")
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  feature Feature          @relation("FeaturePermissions", fields: [featureCode], references: [code])
+  roles   RolePermission[]
 
   @@map("permissions")
 }
 
 model Role {
-  id                Int              @id @default(autoincrement())
-  name              String
-  institutionId     Int?             @map("institution_id")
-  parentId          Int?             @map("parent_id")
-  isSystemRole      Boolean          @default(false) @map("is_system_role")
-  description       String?
-  createdAt         DateTime         @default(now()) @map("created_at")
-  role_hierarchy_id Int?
-  permissions       RolePermission[]
-  institution       Institution?     @relation(fields: [institutionId], references: [id])
-  parent            Role?            @relation("RoleTree", fields: [parentId], references: [id])
-  children          Role[]           @relation("RoleTree")
-  users             UserRole[]
+  id   Int    @id @default(autoincrement())
+  name String
+
+  code String? @map("code")
+
+  institutionId   Int? @map("institution_id")
+  parentId        Int? @map("parent_id")
+  roleHierarchyId Int? @map("role_hierarchy_id")
+
+  isSystemRole Boolean @default(false) @map("is_system_role")
+
+  institution Institution? @relation(fields: [institutionId], references: [id])
+  parent      Role?        @relation("RoleParent", fields: [parentId], references: [id])
+  children    Role[]       @relation("RoleParent")
+
+  hierarchy RoleHierarchy? @relation(fields: [roleHierarchyId], references: [id])
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("roles")
 }
+
 
 model RolePermission {
   roleId       Int        @map("role_id")
@@ -198,43 +243,17 @@ model AuthToken {
   @@map("auth_tokens")
 }
 
-model role_hierarchy {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
+model RoleHierarchy {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
   description String?
   level       Int
-  active      Boolean  @default(true)
-  created_at  DateTime @default(now())
-  updated_at  DateTime
+  active      Boolean @default(true)
+
+  roles Role[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("role_hierarchy")
 }
-
-enum UserStatus {
-  active
-  invited
-  disabled
-}
-
-enum InstitutionStatus {
-  active
-  trial
-  suspended
-}
-
-enum TokenType {
-  one_time_login
-  refresh
-}
-
-model InstitutionMember {
-  id           Int     @id @default(autoincrement())
-  firstName    String
-  lastName     String
-  email        String   @unique
-  phoneNumber  String
-  profilePhoto String?  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-
-

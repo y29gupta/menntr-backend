@@ -1,4 +1,3 @@
-// src/plugins/mailer.ts (ACS VERSION)
 import fp from 'fastify-plugin';
 import { EmailClient } from '@azure/communication-email';
 

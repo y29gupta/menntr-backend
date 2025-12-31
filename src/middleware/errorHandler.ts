@@ -13,7 +13,7 @@ export function errorHandler(
   // Handle Zod validation errors
   if (error instanceof ZodError) {
     logger.warn('Validation error', {
-      errors: error.issues, // FIXED: Use 'issues' instead of 'errors'
+      errors: error.issues, 
       url: request.url,
       method: request.method,
     });
@@ -21,7 +21,7 @@ export function errorHandler(
     return reply.status(400).send({
       error: 'Validation Error',
       code: 'VALIDATION_ERROR',
-      details: error.issues, // FIXED: Use 'issues' instead of 'errors'
+      details: error.issues,
     });
   }
 

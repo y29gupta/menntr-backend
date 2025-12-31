@@ -8,12 +8,12 @@ import { Pool } from 'pg';
 export default fp(async function prismaPlugin(fastify: FastifyInstance) {
   const databaseUrl = process.env.DATABASE_URL;
 
-  // ✅ Fail fast with a clear error
+  //  Fail fast with a clear error
   if (!databaseUrl || typeof databaseUrl !== 'string') {
     throw new Error('DATABASE_URL is missing or invalid');
   }
 
-  // ✅ Create pool AFTER env is loaded
+  //  Create pool AFTER env is loaded
   const pool = new Pool({
     connectionString: databaseUrl,
     ssl: { rejectUnauthorized: false }, // required for Azure PostgreSQL

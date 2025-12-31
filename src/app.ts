@@ -10,11 +10,13 @@ import institutionRoutes, { planRoutes } from './routes/institutions';
 import { errorHandler } from './middleware/errorHandler';
 import { config } from './config';
 import inviteMailer from './plugins/inviteMailer';
-import multipart from '@fastify/multipart';
-
+import cookiePlugin from "./plugins/cookie";
 // import { requestUserPlugin } from './plugins/request-user-plugin';
 import authPlugin from './plugins/auth.plugin';
-import { institutionAdminRoutes } from './routes/institution.admin';
+import { forgotPasswordRoutes } from './routes/forgot-password';
+import { departmentRoutes } from './routes/department.routes';
+import { organizationRoutes } from './routes/organization.routes';
+import { categoryRoutes } from './routes/category.routes';
 
 export function buildApp() {
   const app = fastify({
@@ -37,20 +39,21 @@ export function buildApp() {
   });
 
   app.register(cors, {
-    origin: [config.frontendUrl, 'https://menntr-frontend.netlify.app'],
+    origin: [config.frontend.frontendUrl, "https://menntr-frontend.netlify.app"],
     credentials: true, // allow cookies
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   // Register cookie support
-  app.register(cookie, {
-    secret: config.cookieSecret,
-    hook: 'onRequest',
-    parseOptions: {},
-  });
+  // app.register(cookie, {
+  //   secret: config.cookieSecret,
+  //   hook: 'onRequest',
+  //   parseOptions: {},
+  // });
 
   // Register plugins
+  app.register(cookiePlugin);
   app.register(prismaPlugin);
   app.register(mailerPlugin);
   app.register(jwtPlugin);
@@ -93,8 +96,10 @@ export function buildApp() {
   app.register(authRoutes, { prefix: '/auth' });
   app.register(institutionRoutes);
   app.register(planRoutes);
-  app.register(institutionAdminRoutes);
-
+  app.register(forgotPasswordRoutes);
+  app.register(departmentRoutes);
+  app.register(organizationRoutes);
+  app.register(categoryRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {
