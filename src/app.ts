@@ -17,6 +17,7 @@ import { forgotPasswordRoutes } from './routes/forgot-password';
 import { departmentRoutes } from './routes/department.routes';
 import { organizationRoutes } from './routes/organization.routes';
 import { categoryRoutes } from './routes/category.routes';
+import multipart from '@fastify/multipart';
 
 export function buildApp() {
   const app = fastify({

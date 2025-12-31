@@ -8,6 +8,15 @@ import {
   DeleteNodeParams,
 } from '../types/hierarchy.types';
 
+
+import { ForbiddenError } from '../utils/errors';
+import { buildOrganizationHierarchy } from '../services/organizationHierarchy.service';
+import { buildOrganizationTree } from '../services/organizationTree.service';
+
+
+const CATEGORY_LEVEL = 2;
+const DEPARTMENT_LEVEL = 3;
+
 export async function getHierarchy(
   req: FastifyRequest,
   reply: FastifyReply
@@ -20,13 +29,19 @@ export async function getHierarchy(
     select: { institutionId: true },
   });
 
-  const roles = await prisma.role.findMany({
-    where: { institutionId: user!.institutionId! },
-    orderBy: { createdAt: 'asc' },
-  });
+  if (!user?.institutionId) {
+    throw new ForbiddenError('No institution linked');
+  }
 
-  reply.send(buildTree(roles));
+  const hierarchy = await buildOrganizationHierarchy(
+    prisma,
+    user.institutionId
+  );
+
+  reply.send(hierarchy);
 }
+
+
 
 export async function addCategory(
   req: FastifyRequest<{ Body: AddCategoryBody }>,
@@ -114,4 +129,29 @@ export async function deleteNode(
   });
 
   reply.status(204).send();
+}
+
+
+export async function getOrganizationTree(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const prisma = req.prisma;
+  const userId = BigInt((req as any).user.sub);
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { institutionId: true },
+  });
+
+  if (!user?.institutionId) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const tree = await buildOrganizationTree(
+    prisma,
+    user.institutionId
+  );
+
+  reply.send(tree);
 }
