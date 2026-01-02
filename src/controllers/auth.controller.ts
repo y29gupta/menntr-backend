@@ -11,6 +11,7 @@ import prisma from '../plugins/prisma';
 import { resolveUserPermissions } from '../services/authorization.service';
 
 import { getInstitutionAdminRole } from '../services/role.service';
+import { TokenType } from '@prisma/client';
 const LoginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
@@ -303,7 +304,7 @@ export async function generateInviteHandler(
       data: {
         userId: user.id,
         tokenHash,
-        type: 'one_time_login',
+        type: TokenType.email_verification,
         expiresAt,
       },
     });
@@ -352,7 +353,7 @@ export async function consumeInviteHandler(
   const tokenRec = await prisma.authToken.findFirst({
     where: {
       tokenHash,
-      type: 'one_time_login',
+      type: TokenType.email_verification,
       usedAt: null,
       expiresAt: { gt: new Date() },
     },
