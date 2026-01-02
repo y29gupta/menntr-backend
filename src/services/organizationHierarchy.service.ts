@@ -11,7 +11,7 @@ export async function buildOrganizationHierarchy(
     where: {
       institutionId,
       roleHierarchyId: CATEGORY_LEVEL,
-      // code: { not: null },
+      code: { not: null },
     },
     select: {
       _count: {
@@ -19,7 +19,7 @@ export async function buildOrganizationHierarchy(
           children: {
             where: {
               roleHierarchyId: DEPARTMENT_LEVEL,
-              // code: { not: null },
+              code: { not: null },
             },
           },
         },
@@ -47,16 +47,16 @@ export async function buildOrganizationHierarchy(
 
   // 🟢 CASE 2+: categories exist
   categories.forEach((cat) => {
-    // const departmentCount = cat._count.children;
+    const departmentCount = cat._count.children;
 
     hierarchy.institution.children.push({
       name: 'Category',
-    //   children:
-    //     departmentCount > 0
-    //       ? Array.from({ length: departmentCount }, () => ({
-    //           name: 'Department',
-    //         }))
-    //       : [],
+      children:
+        departmentCount > 0
+          ? Array.from({ length: departmentCount }, () => ({
+              name: 'Department',
+            }))
+          : [],
     });
 
   });

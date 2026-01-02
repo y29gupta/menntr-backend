@@ -92,7 +92,7 @@ export async function createDepartment(
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
         isSystemRole: false,
-        // code: input.code,
+        code: input.code,
       },
     });
 
@@ -104,7 +104,7 @@ export async function createDepartment(
     const department = await tx.role.create({
       data: {
         name: input.name,
-        // code: input.code,
+        code: input.code,
         institutionId,
         parentId: input.categoryId ?? null,
         roleHierarchyId: DEPARTMENT_LEVEL,
@@ -197,7 +197,7 @@ export async function updateDepartment(
           institutionId,
           roleHierarchyId: DEPARTMENT_LEVEL,
           isSystemRole: false,
-          // code: input.code,
+          code: input.code,
           id: { not: departmentId },
         },
       });
@@ -277,7 +277,7 @@ export async function getDepartmentMeta(
         institutionId,
         roleHierarchyId: CATEGORY_LEVEL,
         isSystemRole: false,
-        // code: { not: null },
+        code: { not: null },
       },
       select: {
         id: true,
