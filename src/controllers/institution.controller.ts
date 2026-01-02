@@ -154,6 +154,7 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
           name: 'Institution Admin',
           institutionId: institutionId,
           isSystemRole: false,
+          roleHierarchyId: 1
         },
       });
     }
