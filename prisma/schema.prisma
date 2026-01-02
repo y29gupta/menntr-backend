@@ -40,18 +40,18 @@ enum TokenType {
  */
 
 model Plan {
-  id                 Int      @id @default(autoincrement())
-  code               String   @unique
-  name               String
-  priceMonthly       Decimal? @map("price_monthly")
-  priceYearly        Decimal? @map("price_yearly")
-  maxStudents        Int?     @map("max_students")
-  maxAdmins          Int?     @map("max_admins")
-  storageGb          Int      @default(1) @map("storage_gb")
-  aiQueriesPerMonth  Int      @default(0) @map("ai_queries_per_month")
-  isPublic           Boolean  @default(true) @map("is_public")
-  description        String?
-  createdAt          DateTime @default(now()) @map("created_at")
+  id                Int      @id @default(autoincrement())
+  code              String   @unique
+  name              String
+  priceMonthly      Decimal? @map("price_monthly")
+  priceYearly       Decimal? @map("price_yearly")
+  maxStudents       Int?     @map("max_students")
+  maxAdmins         Int?     @map("max_admins")
+  storageGb         Int      @default(1) @map("storage_gb")
+  aiQueriesPerMonth Int      @default(0) @map("ai_queries_per_month")
+  isPublic          Boolean  @default(true) @map("is_public")
+  description       String?
+  createdAt         DateTime @default(now()) @map("created_at")
 
   institutions Institution[]
   planModules  PlanModule[]
@@ -148,18 +148,18 @@ model RoleHierarchy {
 }
 
 model Role {
-  id              Int    @id @default(autoincrement())
+  id              Int            @id @default(autoincrement())
   name            String
   description     String?
-  institutionId   Int?   @map("institution_id")
-  parentId        Int?   @map("parent_id")
-  roleHierarchyId Int?   @map("role_hierarchy_id")
-  isSystemRole    Boolean @default(false) @map("is_system_role")
-
-  institution Institution? @relation(fields: [institutionId], references: [id])
-  parent      Role?        @relation("RoleParent", fields: [parentId], references: [id])
-  children    Role[]       @relation("RoleParent")
-  hierarchy   RoleHierarchy? @relation(fields: [roleHierarchyId], references: [id])
+  institutionId   Int?           @map("institution_id")
+  parentId        Int?           @map("parent_id")
+  roleHierarchyId Int?           @map("role_hierarchy_id")
+  isSystemRole    Boolean        @default(false) @map("is_system_role")
+  code            String?        @map("code")
+  institution     Institution?   @relation(fields: [institutionId], references: [id])
+  parent          Role?          @relation("RoleParent", fields: [parentId], references: [id])
+  children        Role[]         @relation("RoleParent")
+  hierarchy       RoleHierarchy? @relation(fields: [roleHierarchyId], references: [id])
 
   users       UserRole[]
   permissions RolePermission[]
