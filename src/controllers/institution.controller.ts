@@ -139,7 +139,7 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
     });
 
     // Find or create "Institution Admin" role for this institution
-    let institutionAdminRole = await prisma.roleHierarchy.findFirst({
+    let institutionAdminRole = await prisma.role.findFirst({
       where: {
         name: 'Institution Admin',
         institutionId: institutionId,
