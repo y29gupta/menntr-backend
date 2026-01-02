@@ -153,7 +153,7 @@ model Role {
   description     String?
   institutionId   Int?           @map("institution_id")
   parentId        Int?           @map("parent_id")
-  roleHierarchyId Int?           @map("role_hierarchy_id")
+  roleHierarchyId Int           @map("role_hierarchy_id")
   isSystemRole    Boolean        @default(false) @map("is_system_role")
   code            String?        @map("code")
   institution     Institution?   @relation(fields: [institutionId], references: [id])
