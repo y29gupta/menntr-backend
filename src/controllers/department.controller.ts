@@ -41,7 +41,7 @@ export async function listDepartments(
   const data = rows.map((r) => ({
     id: r.id,
     name: r.name,
-    code: r.code,
+    // code: r.code,
     category: r.parent
       ? { id: r.parent.id, name: r.parent.name }
       : null,

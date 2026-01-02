@@ -14,20 +14,23 @@ datasource db {
 
 enum UserStatus {
   active
-  invited
-  disabled
+  inactive
+  suspended
+  deleted
 }
 
 enum InstitutionStatus {
   active
-  trial
   suspended
+  cancelled
+  trial
 }
 
 enum TokenType {
-  one_time_login
-  refresh
+  email_verification
   password_reset
+  api_key
+  session
 }
 
 /**
@@ -37,15 +40,18 @@ enum TokenType {
  */
 
 model Plan {
-  id           Int      @id @default(autoincrement())
-  code         String   @unique
-  name         String
-  priceMonthly Decimal? @map("price_monthly")
-  priceYearly  Decimal? @map("price_yearly")
-  maxStudents  Int?     @map("max_students")
-  isPublic     Boolean  @default(true) @map("is_public")
-  description  String?
-  createdAt    DateTime @default(now()) @map("created_at")
+  id                 Int      @id @default(autoincrement())
+  code               String   @unique
+  name               String
+  priceMonthly       Decimal? @map("price_monthly")
+  priceYearly        Decimal? @map("price_yearly")
+  maxStudents        Int?     @map("max_students")
+  maxAdmins          Int?     @map("max_admins")
+  storageGb          Int      @default(1) @map("storage_gb")
+  aiQueriesPerMonth  Int      @default(0) @map("ai_queries_per_month")
+  isPublic           Boolean  @default(true) @map("is_public")
+  description        String?
+  createdAt          DateTime @default(now()) @map("created_at")
 
   institutions Institution[]
   planModules  PlanModule[]
@@ -90,29 +96,19 @@ model Feature {
   @@map("features")
 }
 
-model PlanModule {
-  planId   Int     @map("plan_id")
-  moduleId Int     @map("module_id")
-  included Boolean @default(true)
+model Permission {
+  id             Int      @id @default(autoincrement())
+  featureCode    String   @map("feature_code")
+  permissionCode String   @unique @map("permission_code")
+  permissionName String   @map("permission_name")
+  actionType     String?  @map("action_type")
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  plan   Plan   @relation(fields: [planId], references: [id])
-  module Module @relation(fields: [moduleId], references: [id])
+  feature Feature          @relation("FeaturePermissions", fields: [featureCode], references: [code])
+  roles   RolePermission[]
 
-  @@id([planId, moduleId])
-  @@map("plan_modules")
-}
-
-model PlanFeature {
-  planId     Int     @map("plan_id")
-  featureId  Int     @map("feature_id")
-  included   Boolean @default(true)
-  usageLimit Int?    @map("usage_limit")
-
-  plan    Plan    @relation(fields: [planId], references: [id])
-  feature Feature @relation(fields: [featureId], references: [id])
-
-  @@id([planId, featureId])
-  @@map("plan_features")
+  @@map("permissions")
 }
 
 model Institution {
@@ -136,51 +132,34 @@ model Institution {
   @@map("institutions")
 }
 
-model InstitutionModule {
-  institutionId Int      @map("institution_id")
-  moduleId      Int      @map("module_id")
-  enabled       Boolean  @default(true)
-  configuredAt  DateTime @default(now()) @map("configured_at")
+model RoleHierarchy {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+  level       Int
+  active      Boolean @default(true)
 
-  institution Institution @relation(fields: [institutionId], references: [id])
-  module      Module      @relation(fields: [moduleId], references: [id])
+  roles Role[]
 
-  @@id([institutionId, moduleId])
-  @@map("institution_modules")
-}
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-model Permission {
-  id             Int      @id @default(autoincrement())
-  featureCode    String   @map("feature_code")
-  permissionCode String   @map("permission_code")
-  permissionName String   @map("permission_name")
-  actionType     String?  @map("action_type")
-  description    String?
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  feature Feature          @relation("FeaturePermissions", fields: [featureCode], references: [code])
-  roles   RolePermission[]
-
-  @@map("permissions")
+  @@map("role_hierarchy")
 }
 
 model Role {
-  id   Int    @id @default(autoincrement())
-  name String
-
-  code String? @map("code")
-
-  institutionId   Int? @map("institution_id")
-  parentId        Int? @map("parent_id")
-  roleHierarchyId Int? @map("role_hierarchy_id")
-
-  isSystemRole Boolean @default(false) @map("is_system_role")
+  id              Int    @id @default(autoincrement())
+  name            String
+  description     String?
+  institutionId   Int?   @map("institution_id")
+  parentId        Int?   @map("parent_id")
+  roleHierarchyId Int?   @map("role_hierarchy_id")
+  isSystemRole    Boolean @default(false) @map("is_system_role")
 
   institution Institution? @relation(fields: [institutionId], references: [id])
   parent      Role?        @relation("RoleParent", fields: [parentId], references: [id])
   children    Role[]       @relation("RoleParent")
-
-  hierarchy RoleHierarchy? @relation(fields: [roleHierarchyId], references: [id])
+  hierarchy   RoleHierarchy? @relation(fields: [roleHierarchyId], references: [id])
 
   users       UserRole[]
   permissions RolePermission[]
@@ -189,18 +168,6 @@ model Role {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("roles")
-}
-
-
-model RolePermission {
-  roleId       Int @map("role_id")
-  permissionId Int @map("permission_id")
-
-  role       Role       @relation(fields: [roleId], references: [id])
-  permission Permission @relation(fields: [permissionId], references: [id])
-
-  @@id([roleId, permissionId])
-  @@map("role_permissions")
 }
 
 model User {
@@ -253,17 +220,51 @@ model AuthToken {
   @@map("auth_tokens")
 }
 
-model RoleHierarchy {
-  id          Int     @id @default(autoincrement())
-  name        String  @unique
-  description String?
-  level       Int
-  active      Boolean @default(true)
+model RolePermission {
+  roleId       Int @map("role_id")
+  permissionId Int @map("permission_id")
 
-  roles Role[]
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
 
-  @@map("role_hierarchy")
+model PlanModule {
+  planId   Int     @map("plan_id")
+  moduleId Int     @map("module_id")
+  included Boolean @default(true)
+
+  plan   Plan   @relation(fields: [planId], references: [id])
+  module Module @relation(fields: [moduleId], references: [id])
+
+  @@id([planId, moduleId])
+  @@map("plan_modules")
+}
+
+model PlanFeature {
+  planId     Int     @map("plan_id")
+  featureId  Int     @map("feature_id")
+  included   Boolean @default(true)
+  usageLimit Int?    @map("usage_limit")
+
+  plan    Plan    @relation(fields: [planId], references: [id])
+  feature Feature @relation(fields: [featureId], references: [id])
+
+  @@id([planId, featureId])
+  @@map("plan_features")
+}
+
+model InstitutionModule {
+  institutionId Int      @map("institution_id")
+  moduleId      Int      @map("module_id")
+  enabled       Boolean  @default(true)
+  configuredAt  DateTime @default(now()) @map("configured_at")
+
+  institution Institution @relation(fields: [institutionId], references: [id])
+  module      Module      @relation(fields: [moduleId], references: [id])
+
+  @@id([institutionId, moduleId])
+  @@map("institution_modules")
 }

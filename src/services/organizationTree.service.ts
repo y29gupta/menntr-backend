@@ -11,14 +11,14 @@ export async function buildOrganizationTree(
     where: {
       institutionId,
       roleHierarchyId: CATEGORY_LEVEL,
-      code: { not: null },
+    //   code: { not: null },
     },
     include: {
       users: { include: { user: true } }, // category head
       children: {
         where: {
           roleHierarchyId: DEPARTMENT_LEVEL,
-          code: { not: null },
+        //   code: { not: null },
         },
         include: {
           users: { include: { user: true } }, // HOD

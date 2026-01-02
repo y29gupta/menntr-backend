@@ -19,7 +19,7 @@ export async function getCategories(
     where: {
       institutionId,
       roleHierarchyId: CATEGORY_LEVEL,
-      code: { not: null },
+      // code: { not: null },
     },
     include: {
       _count: {
@@ -27,7 +27,7 @@ export async function getCategories(
           children: {
             where: {
               roleHierarchyId: DEPARTMENT_LEVEL,
-              code: { not: null },
+              // code: { not: null },
             },
           },
         },
@@ -65,7 +65,7 @@ export async function getCategoryMeta(
       where: {
         institutionId,
         roleHierarchyId: DEPARTMENT_LEVEL,
-        code: { not: null },        // ✅ real departments only
+        // code: { not: null },        // ✅ real departments only
         isSystemRole: false,        // ✅ exclude system roles
       },
       select: {
@@ -123,7 +123,7 @@ export async function createCategory(
       where: {
         institutionId,
         roleHierarchyId: CATEGORY_LEVEL,
-        code: input.code,
+        // code: input.code,
       },
     });
 
@@ -147,7 +147,7 @@ export async function createCategory(
     const category = await tx.role.create({
       data: {
         name: input.name,
-        code: input.code,
+        // code: input.code,
         institutionId,
         parentId: root.id,
         roleHierarchyId: CATEGORY_LEVEL,
@@ -219,7 +219,7 @@ export async function updateCategory(
         where: {
           institutionId,
           roleHierarchyId: CATEGORY_LEVEL,
-          code: input.code,
+          // code: input.code,
           id: { not: categoryId },
         },
       });
@@ -303,7 +303,7 @@ export async function getCategoryByIdService(
       id: categoryId,
       institutionId,
       roleHierarchyId: CATEGORY_LEVEL,
-      code: { not: null },
+      // code: { not: null },
     },
     include: {
       users: {
@@ -312,7 +312,7 @@ export async function getCategoryByIdService(
       children: {
         where: {
           roleHierarchyId: DEPARTMENT_LEVEL,
-          code: { not: null },
+          // code: { not: null },
         },
         orderBy: { name: 'asc' },
       },

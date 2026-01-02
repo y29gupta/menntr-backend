@@ -33,17 +33,17 @@ reply.send(
   categories.map((c) => ({
     id: c.id,
     name: c.name,
-    code: c.code,
-    departmentCount: c._count.children, // ✅ HERE
-    head: c.users.length
-      ? {
-          id: Serializer.bigIntToString(c.users[0].user.id),
-          name: `${c.users[0].user.firstName ?? ''} ${
-            c.users[0].user.lastName ?? ''
-          }`.trim(),
-          email: c.users[0].user.email,
-        }
-      : null,
+    // code: c.code,
+    // departmentCount: c._count.children, // ✅ HERE
+    // head: c.users.length
+    //   ? {
+    //       id: Serializer.bigIntToString(c.users[0].user.id),
+    //       name: `${c.users[0].user.firstName ?? ''} ${
+    //         c.users[0].user.lastName ?? ''
+    //       }`.trim(),
+    //       email: c.users[0].user.email,
+    //     }
+    //   : null,
   }))
 );
 }
@@ -173,22 +173,22 @@ export async function getCategoryById(
   reply.send({
     id: category.id,
     name: category.name,
-    code: category.code,
+    // code: category.code,
 
-    head: category.users.length
-      ? {
-          id: Serializer.bigIntToString(category.users[0].user.id),
-          name: `${category.users[0].user.firstName ?? ''} ${
-            category.users[0].user.lastName ?? ''
-          }`.trim(),
-          email: category.users[0].user.email,
-        }
-      : null,
+    // head: category.users.length
+    //   ? {
+    //       id: Serializer.bigIntToString(category.users[0].user.id),
+    //       name: `${category.users[0].user.firstName ?? ''} ${
+    //         category.users[0].user.lastName ?? ''
+    //       }`.trim(),
+    //       email: category.users[0].user.email,
+    //     }
+    //   : null,
 
-    departments: category.children.map((d: any) => ({
-      id: d.id,
-      name: d.name,
-      code: d.code,
-    })),
+    // departments: category.children.map((d: any) => ({
+    //   id: d.id,
+    //   name: d.name,
+    //   code: d.code,
+    // })),
   });
 }

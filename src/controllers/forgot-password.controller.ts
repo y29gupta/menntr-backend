@@ -92,7 +92,7 @@ export async function sendForgotPasswordEmail(request: FastifyRequest, reply: Fa
     data: {
       userId: user.id,
       tokenHash: hash,
-      type: TokenType.one_time_login,
+      type: 'email_verification',
       expiresAt: expiresAt,
     },
   });
@@ -133,7 +133,7 @@ export async function verifyResetToken(request: FastifyRequest, reply: FastifyRe
   const record = await prisma.authToken.findFirst({
     where: {
       tokenHash: tokenHash,
-      type: TokenType.one_time_login,
+      type: 'password_reset',
       usedAt: null,
       expiresAt: { gt: new Date() },
       user: { email },
@@ -166,7 +166,7 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
   const record = await prisma.authToken.findFirst({
     where: {
       tokenHash,
-      type: TokenType.one_time_login,
+      type: 'password_reset',
       usedAt: null,
       expiresAt: { gt: new Date() },
       user: { email },
@@ -199,7 +199,7 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
     prisma.authToken.updateMany({
       where: {
         userId: record.userId,
-        type: TokenType.one_time_login,
+        type: 'password_reset',
       },
       data: { usedAt: new Date() },
     }),
