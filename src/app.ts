@@ -18,6 +18,7 @@ import { departmentRoutes } from './routes/department.routes';
 import { organizationRoutes } from './routes/organization.routes';
 import { categoryRoutes } from './routes/category.routes';
 import multipart from '@fastify/multipart';
+import {institutionAdminRoutes} from './routes/institution.admin';
 
 export function buildApp() {
   const app = fastify({
@@ -101,6 +102,7 @@ export function buildApp() {
   app.register(departmentRoutes);
   app.register(organizationRoutes);
   app.register(categoryRoutes);
+  app.register(institutionAdminRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {

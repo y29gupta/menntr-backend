@@ -239,7 +239,7 @@ export async function generateInviteHandler(
     const prisma = request.prisma;
     const emailService = new EmailService(request.server.mailer);
     const currentUser = (request as any).user;
-
+    console.log("current user suraj", currentUser)
     if (!institutionId) {
       throw new ValidationError('institutionId is required for invite');
     }

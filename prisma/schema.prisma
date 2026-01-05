@@ -50,6 +50,7 @@ model Plan {
   ai_queries_per_month Int?          @default(0)
   institutions         Institution[]
   planModules          PlanModule[]
+  planFeatures         PlanFeature[]
 
   @@map("plans")
 }
@@ -84,7 +85,7 @@ model Feature {
 
   module       Module        @relation(fields: [moduleId], references: [id])
   permissions  Permission[]  @relation("FeaturePermissions")
-  planFeatures PlanFeature[]
+  planFeatures PlanFeature[] @relation("FeaturePlanFeatures")
 
   @@map("features")
 }
@@ -102,13 +103,16 @@ model PlanModule {
 
 /// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
 model PlanFeature {
-  plan_code    String
-  feature_code String
-  included     Boolean @default(true)
-  usageLimit   Int?    @map("usage_limit")
+  planCode    String  @map("plan_code")
+  featureCode String  @map("feature_code")
+  included    Boolean @default(true)
+  usageLimit  Int?    @map("usage_limit")
 
+  plan    Plan    @relation(fields: [planCode], references: [code])
+  feature Feature @relation("FeaturePlanFeatures", fields: [featureCode], references: [code])
+
+  @@id([planCode, featureCode])
   @@map("plan_features")
-  @@ignore
 }
 
 model Institution {
@@ -184,7 +188,6 @@ model Role {
 
   @@map("roles")
 }
-
 
 model RolePermission {
   roleId       Int        @map("role_id")
