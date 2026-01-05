@@ -1,11 +1,11 @@
 -- CreateEnum
-CREATE TYPE "UserStatus" AS ENUM ('active', 'inactive', 'suspended', 'deleted');
+CREATE TYPE "institution_status" AS ENUM ('active', 'suspended', 'cancelled', 'trial');
 
 -- CreateEnum
-CREATE TYPE "InstitutionStatus" AS ENUM ('active', 'suspended', 'cancelled', 'trial');
+CREATE TYPE "user_status" AS ENUM ('active', 'inactive', 'suspended', 'deleted');
 
 -- CreateEnum
-CREATE TYPE "TokenType" AS ENUM ('email_verification', 'password_reset', 'api_key', 'session');
+CREATE TYPE "token_type" AS ENUM ('email_verification', 'password_reset', 'api_key', 'session');
 
 -- CreateTable
 CREATE TABLE "plans" (
@@ -16,10 +16,10 @@ CREATE TABLE "plans" (
     "price_yearly" DECIMAL(65,30),
     "max_students" INTEGER,
     "max_admins" INTEGER,
-    "storage_gb" INTEGER NOT NULL DEFAULT 1,
-    "ai_queries_per_month" INTEGER NOT NULL DEFAULT 0,
     "is_public" BOOLEAN NOT NULL DEFAULT true,
     "description" TEXT,
+    "storage_gb" INTEGER NOT NULL DEFAULT 1,
+    "ai_queries_per_month" INTEGER NOT NULL DEFAULT 0,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "plans_pkey" PRIMARY KEY ("id")
@@ -76,7 +76,7 @@ CREATE TABLE "institutions" (
     "subdomain" TEXT,
     "contact_email" TEXT NOT NULL,
     "plan_id" INTEGER,
-    "status" "InstitutionStatus" NOT NULL DEFAULT 'active',
+    "status" "institution_status" NOT NULL DEFAULT 'active',
     "trial_ends_at" TIMESTAMP(3),
     "metadata" JSONB NOT NULL DEFAULT '{}',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -99,22 +99,6 @@ CREATE TABLE "role_hierarchy" (
 );
 
 -- CreateTable
-CREATE TABLE "roles" (
-    "id" SERIAL NOT NULL,
-    "name" TEXT NOT NULL,
-    "description" TEXT,
-    "institution_id" INTEGER,
-    "parent_id" INTEGER,
-    "role_hierarchy_id" INTEGER,
-    "is_system_role" BOOLEAN NOT NULL DEFAULT false,
-    "code" TEXT,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "roles_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "users" (
     "id" BIGSERIAL NOT NULL,
     "institution_id" INTEGER,
@@ -125,12 +109,28 @@ CREATE TABLE "users" (
     "first_name" TEXT,
     "last_name" TEXT,
     "avatar_url" TEXT,
-    "status" "UserStatus" NOT NULL DEFAULT 'active',
+    "status" "user_status" NOT NULL DEFAULT 'active',
     "last_login_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "users_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "roles" (
+    "id" SERIAL NOT NULL,
+    "code" TEXT,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "institution_id" INTEGER,
+    "parent_id" INTEGER,
+    "role_hierarchy_id" INTEGER,
+    "is_system_role" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "roles_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -148,20 +148,12 @@ CREATE TABLE "auth_tokens" (
     "id" SERIAL NOT NULL,
     "user_id" BIGINT NOT NULL,
     "token_hash" TEXT NOT NULL,
-    "type" "TokenType" NOT NULL,
+    "type" "token_type" NOT NULL,
     "expires_at" TIMESTAMP(3) NOT NULL,
     "used_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "auth_tokens_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "role_permissions" (
-    "role_id" INTEGER NOT NULL,
-    "permission_id" INTEGER NOT NULL,
-
-    CONSTRAINT "role_permissions_pkey" PRIMARY KEY ("role_id","permission_id")
 );
 
 -- CreateTable
@@ -175,12 +167,12 @@ CREATE TABLE "plan_modules" (
 
 -- CreateTable
 CREATE TABLE "plan_features" (
-    "plan_id" INTEGER NOT NULL,
-    "feature_id" INTEGER NOT NULL,
+    "plan_code" TEXT NOT NULL,
+    "feature_code" TEXT NOT NULL,
     "included" BOOLEAN NOT NULL DEFAULT true,
     "usage_limit" INTEGER,
 
-    CONSTRAINT "plan_features_pkey" PRIMARY KEY ("plan_id","feature_id")
+    CONSTRAINT "plan_features_pkey" PRIMARY KEY ("plan_code","feature_code")
 );
 
 -- CreateTable
@@ -191,6 +183,14 @@ CREATE TABLE "institution_modules" (
     "configured_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "institution_modules_pkey" PRIMARY KEY ("institution_id","module_id")
+);
+
+-- CreateTable
+CREATE TABLE "role_permissions" (
+    "role_id" INTEGER NOT NULL,
+    "permission_id" INTEGER NOT NULL,
+
+    CONSTRAINT "role_permissions_pkey" PRIMARY KEY ("role_id","permission_id")
 );
 
 -- CreateIndex
@@ -224,6 +224,9 @@ ALTER TABLE "permissions" ADD CONSTRAINT "permissions_feature_code_fkey" FOREIGN
 ALTER TABLE "institutions" ADD CONSTRAINT "institutions_plan_id_fkey" FOREIGN KEY ("plan_id") REFERENCES "plans"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "users" ADD CONSTRAINT "users_institution_id_fkey" FOREIGN KEY ("institution_id") REFERENCES "institutions"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "roles" ADD CONSTRAINT "roles_institution_id_fkey" FOREIGN KEY ("institution_id") REFERENCES "institutions"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -231,9 +234,6 @@ ALTER TABLE "roles" ADD CONSTRAINT "roles_parent_id_fkey" FOREIGN KEY ("parent_i
 
 -- AddForeignKey
 ALTER TABLE "roles" ADD CONSTRAINT "roles_role_hierarchy_id_fkey" FOREIGN KEY ("role_hierarchy_id") REFERENCES "role_hierarchy"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "users" ADD CONSTRAINT "users_institution_id_fkey" FOREIGN KEY ("institution_id") REFERENCES "institutions"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -245,25 +245,25 @@ ALTER TABLE "user_roles" ADD CONSTRAINT "user_roles_role_id_fkey" FOREIGN KEY ("
 ALTER TABLE "auth_tokens" ADD CONSTRAINT "auth_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "role_permissions" ADD CONSTRAINT "role_permissions_role_id_fkey" FOREIGN KEY ("role_id") REFERENCES "roles"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "role_permissions" ADD CONSTRAINT "role_permissions_permission_id_fkey" FOREIGN KEY ("permission_id") REFERENCES "permissions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "plan_modules" ADD CONSTRAINT "plan_modules_plan_id_fkey" FOREIGN KEY ("plan_id") REFERENCES "plans"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "plan_modules" ADD CONSTRAINT "plan_modules_module_id_fkey" FOREIGN KEY ("module_id") REFERENCES "modules"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plan_features" ADD CONSTRAINT "plan_features_plan_id_fkey" FOREIGN KEY ("plan_id") REFERENCES "plans"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "plan_features" ADD CONSTRAINT "plan_features_plan_code_fkey" FOREIGN KEY ("plan_code") REFERENCES "plans"("code") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "plan_features" ADD CONSTRAINT "plan_features_feature_id_fkey" FOREIGN KEY ("feature_id") REFERENCES "features"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "plan_features" ADD CONSTRAINT "plan_features_feature_code_fkey" FOREIGN KEY ("feature_code") REFERENCES "features"("code") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "institution_modules" ADD CONSTRAINT "institution_modules_institution_id_fkey" FOREIGN KEY ("institution_id") REFERENCES "institutions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "institution_modules" ADD CONSTRAINT "institution_modules_module_id_fkey" FOREIGN KEY ("module_id") REFERENCES "modules"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "role_permissions" ADD CONSTRAINT "role_permissions_role_id_fkey" FOREIGN KEY ("role_id") REFERENCES "roles"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "role_permissions" ADD CONSTRAINT "role_permissions_permission_id_fkey" FOREIGN KEY ("permission_id") REFERENCES "permissions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

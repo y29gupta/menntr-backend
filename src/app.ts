@@ -17,6 +17,8 @@ import { forgotPasswordRoutes } from './routes/forgot-password';
 import { departmentRoutes } from './routes/department.routes';
 import { organizationRoutes } from './routes/organization.routes';
 import { categoryRoutes } from './routes/category.routes';
+import {userManagementRoutes} from './routes/userManagement.routes';
+import { batchRoutes } from './routes/batch.routes';
 
 export function buildApp() {
   const app = fastify({
@@ -95,6 +97,8 @@ export function buildApp() {
   app.register(departmentRoutes);
   app.register(organizationRoutes);
   app.register(categoryRoutes);
+  app.register(userManagementRoutes);
+  app.register(batchRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {

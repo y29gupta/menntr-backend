@@ -11,14 +11,14 @@ export const CreateDepartmentSchema = z.object({
     .trim()
     .min(2, 'Department code must be at least 2 characters'),
 
-  categoryId: z
+  category_id: z
     .number()
     .int('Category ID must be an integer')
     .positive('Category ID must be positive')
     .nullable()
     .optional(),
 
-  hodUserId: z
+  hod_user_id: z
     .number()
     .int('HOD user ID must be an integer')
     .positive('HOD user ID must be positive')
@@ -39,14 +39,14 @@ export const UpdateDepartmentSchema = z
       .min(2, 'Department code must be at least 2 characters')
       .optional(),
 
-    categoryId: z
+    category_id: z
       .number()
       .int('Category ID must be an integer')
       .positive('Category ID must be positive')
       .nullable()
       .optional(),
 
-    hodUserId: z
+    hod_user_id: z
       .number()
       .int('HOD user ID must be an integer')
       .positive('HOD user ID must be positive')

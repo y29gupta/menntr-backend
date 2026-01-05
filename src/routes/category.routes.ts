@@ -5,6 +5,7 @@ import {
   editCategory,
   categoryMeta,
   getCategoryById,
+  deleteCategory,
 } from '../controllers/category.controller';
 import { authGuard } from '../hooks/auth.guard';
 
@@ -36,5 +37,10 @@ export async function categoryRoutes(app: FastifyInstance) {
   '/organization/categories/:id',
   { preHandler: [authGuard] },
   getCategoryById
+);
+app.delete(
+  '/organization/categories/:id',
+  { preHandler: [authGuard] },
+  deleteCategory
 );
 }

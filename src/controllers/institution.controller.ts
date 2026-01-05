@@ -11,16 +11,16 @@ export const CreateInstitutionBody = z.object({
   name: z.string().min(2),
   code: z.string().min(2),
   subdomain: z.string().optional().nullable(),
-  contactEmail: z.string().email(),
-  planId: z.number().int().optional().nullable(),
+  contact_email: z.string().email(),
+  plan_id: z.number().int().optional().nullable(),
 });
 
 const CreateInstitutionAdmin = z.object({
   email: z.string().email(),
   password: z.string().min(8).optional(),
-  firstName: z.string().min(6).optional(),
-  lastName: z.string().min(1).optional(),
-  institutionId: z.number().int(),
+  first_name: z.string().min(6).optional(),
+  last_name: z.string().min(1).optional(),
+  institution_id: z.number().int(),
 });
 const GetPlanModulesParamsSchema = z.object({
   planId: z.coerce.number(),
@@ -38,16 +38,16 @@ export function serializeInstitution(inst: any) {
     name: inst.name,
     code: inst.code,
     subdomain: inst.subdomain,
-    contactEmail: inst.contactEmail,
-    planId:
-      inst.planId == null
+    contact_email: inst.contact_email,
+    plan_id:
+      inst.plan_id == null
         ? null
-        : typeof inst.planId === 'bigint'
-          ? inst.planId.toString()
-          : inst.planId,
+        : typeof inst.plan_id === 'bigint'
+          ? inst.plan_id.toString()
+          : inst.plan_id,
     status: inst.status,
-    createdAt: inst.createdAt ?? null,
-    updatedAt: inst.updatedAt ?? null,
+    created_at: inst.created_at ?? null,
+    updated_at: inst.updated_at ?? null,
   };
 }
 
@@ -57,7 +57,7 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
     const parsed = CreateInstitutionBody.safeParse(request.body);
     if (!parsed.success) throw new ValidationError('Invalid request', parsed.error.issues);
 
-    const { name, code, subdomain, contactEmail, planId } = parsed.data;
+    const { name, code, subdomain, contact_email, plan_id } = parsed.data;
     const prisma = request.prisma;
     // const existing = await prisma.institution.findFirst({
     //   where: {
@@ -73,27 +73,27 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
     //     throw new ConflictError('Institution with this subdomain already exists');
     //   }
     // }
-    const inst = await prisma.institution.create({
+    const inst = await prisma.institutions.create({
       data: {
         name,
         code,
         // subdomain,
-        contactEmail,
-        planId: planId ?? null,
+        contact_email,
+        plan_id: plan_id ?? null,
         status: 'active',
       },
     });
-    await provisionInstitution(prisma, inst.id, inst.planId);
+    await provisionInstitution(prisma, inst.id, inst.plan_id);
     
 
     logger.audit({
-      userId: (request as any).user?.sub,
+      user_id: (request as any).user?.sub,
       action: 'CREATE_INSTITUTION',
       resource: 'institutions',
-      resourceId: inst.id.toString(),
+      resource_id: inst.id.toString(),
       status: 'success',
-      ipAddress: request.ip,
-      userAgent: request.headers['user-agent'],
+      ip_address: request.ip,
+      user_agent: request.headers['user-agent'],
     });
 
     return reply.code(201).send(serializeInstitution(inst));
@@ -121,61 +121,61 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
 
     if (!parsed.success) throw new ValidationError('Invalid request', parsed.error.issues);
 
-    const { email, password, firstName, lastName, institutionId } = parsed.data;
+    const { email, password, first_name, last_name, institution_id } = parsed.data;
     const prisma = request.prisma;
 
     // Create user
     // const passwordHash = await AuthService.hashPassword(password);
-    const user = await prisma.user.create({
+    const user = await prisma.users.create({
       data: {
         email,
         // passwordHash,
-        firstName: firstName ?? null,
-        lastName: lastName ?? null,
-        institutionId: institutionId,
+        first_name: first_name ?? null,
+        last_name: last_name ?? null,
+        institution_id: institution_id,
         status: 'active',
-        mustChangePassword: true,
+        must_change_password: true,
       },
     });
 
     // Find or create "Institution Admin" role for this institution
-    let institutionAdminRole = await prisma.role.findFirst({
+    let institutionAdminRole = await prisma.roles.findFirst({
       where: {
         name: 'Institution Admin',
-        institutionId: institutionId,
-        isSystemRole: false,
-        roleHierarchyId: 1,
+        institution_id: institution_id,
+        is_system_role: false,
+        role_hierarchy_id: 1,
       },
     });
 
     if (!institutionAdminRole) {
       // Create role if it doesn't exist
-      institutionAdminRole = await prisma.role.create({
+      institutionAdminRole = await prisma.roles.create({
         data: {
           name: 'Institution Admin',
-          institutionId: institutionId,
-          isSystemRole: false,
-          roleHierarchyId: 1
+          institution_id,
+          is_system_role: false,
+          role_hierarchy_id: 1
         },
       });
     }
 
     // Assign role to user
-    await prisma.userRole.create({
+    await prisma.user_roles.create({
       data: {
-        userId: user.id,
-        roleId: institutionAdminRole.id,
-        assignedBy: BigInt(currentUser.sub),
+        user_id: user.id,
+        role_id: institutionAdminRole.id,
+        assigned_by: BigInt(currentUser.sub),
       },
     });
 
     logger.audit({
-      userId: currentUser.sub,
+      user_id: currentUser.sub,
       action: 'CREATE_INSTITUTION_ADMIN',
       resource: 'users',
-      resourceId: user.id.toString(),
+      resource_id: user.id.toString(),
       status: 'success',
-      metadata: { institutionId },
+      metadata: { institution_id },
     });
 
     return reply.code(201).send({
@@ -229,8 +229,8 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
         name: bodyParsed.data.name,
         code: bodyParsed.data.code,
         subdomain: bodyParsed.data.subdomain ?? null,
-        contactEmail: bodyParsed.data.contactEmail,
-        planId: bodyParsed.data.planId ?? null,
+        contact_email: bodyParsed.data.contact_email,
+        plan_id: bodyParsed.data.plan_id ?? null,
       },
     });
 
