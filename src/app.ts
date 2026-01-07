@@ -11,6 +11,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { config } from './config';
 import inviteMailer from './plugins/inviteMailer';
 import cookiePlugin from "./plugins/cookie";
+import multipartPlugin from './plugins/multipart';
 // import { requestUserPlugin } from './plugins/request-user-plugin';
 import authPlugin from './plugins/auth.plugin';
 import { forgotPasswordRoutes } from './routes/forgot-password';
@@ -19,6 +20,7 @@ import { organizationRoutes } from './routes/organization.routes';
 import { categoryRoutes } from './routes/category.routes';
 import {userManagementRoutes} from './routes/userManagement.routes';
 import { batchRoutes } from './routes/batch.routes';
+import {mcqRoutes} from './routes/mcq.routes';
 
 export function buildApp() {
   const app = fastify({
@@ -54,6 +56,7 @@ export function buildApp() {
   app.register(cookiePlugin);
   app.register(prismaPlugin);
   app.register(mailerPlugin);
+  app.register(multipartPlugin);
   app.register(jwtPlugin);
   app.register(inviteMailer);
   // app.register(requestUserPlugin);
@@ -99,6 +102,7 @@ export function buildApp() {
   app.register(categoryRoutes);
   app.register(userManagementRoutes);
   app.register(batchRoutes);
+  app.register(mcqRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {
