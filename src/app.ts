@@ -21,6 +21,7 @@ import { categoryRoutes } from './routes/category.routes';
 import {userManagementRoutes} from './routes/userManagement.routes';
 import { batchRoutes } from './routes/batch.routes';
 import {mcqRoutes} from './routes/mcq.routes';
+import { assessmentRoutes } from './routes/assessment.routes';
 
 export function buildApp() {
   const app = fastify({
@@ -103,6 +104,7 @@ export function buildApp() {
   app.register(userManagementRoutes);
   app.register(batchRoutes);
   app.register(mcqRoutes);
+  app.register(assessmentRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {
