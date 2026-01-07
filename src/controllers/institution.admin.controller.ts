@@ -111,7 +111,7 @@ export async function getAvailableModulesHandler(request: FastifyRequest, reply:
     const prisma = request.server.prisma;
 
     const currentUser: any = request.user;
-    console.log('currentUser', currentUser);
+    // console.log('currentUser', currentUser);
     if (!currentUser?.institutionId) {
       return reply.code(400).send({
         error: 'Institution ID missing in user context',
@@ -249,6 +249,130 @@ export async function getAvailableModulesHandler(request: FastifyRequest, reply:
   }
 }
 
+export async function getModulesHandler(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    const prisma = request.server.prisma;
+    const currentUser: any = request.user;
+    console.log('currentUser', currentUser);
+
+    if (!currentUser?.institutionId) {
+      return reply.code(400).send({ error: 'Institution ID missing' });
+    }
+
+    const institution = await prisma.institution.findUnique({
+      where: { id: Number(currentUser.institutionId) },
+      select: {
+        planId: true,
+      },
+    });
+
+    if (!institution?.planId) {
+      return reply.code(400).send({ error: 'Institution has no plan' });
+    }
+
+    const planModules = await prisma.planModule.findMany({
+      where: {
+        planId: institution.planId,
+        included: true,
+      },
+      select: {
+        module: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            description: true,
+            icon: true,
+            category: true,
+            isCore: true,
+          },
+        },
+      },
+    });
+
+    return reply.send({
+      data: planModules.map((pm: any) => pm.module),
+    });
+  } catch (err) {
+    request.log.error(err);
+    reply.code(500).send({ error: 'Internal server error' });
+  }
+}
+
+export async function getModuleFeaturesHandler(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    const prisma = request.server.prisma;
+    const { moduleId } = request.params as any;
+
+    const currentUser: any = request.user;
+
+    const institution = await prisma.institution.findUnique({
+      where: { id: Number(currentUser.institutionId) },
+      select: {
+        plan: { select: { code: true } },
+      },
+    });
+
+    const planCode = institution?.plan?.code;
+
+    const planFeatures = await prisma.planFeature.findMany({
+      where: { planCode, included: true },
+      select: { featureCode: true },
+    });
+
+    const allowedFeatureCodes = planFeatures.map((p: any) => p.featureCode);
+
+    const features = await prisma.feature.findMany({
+      where: {
+        moduleId: Number(moduleId),
+        code: { in: allowedFeatureCodes },
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        description: true,
+      },
+    });
+
+    return reply.send({ data: features });
+  } catch (err) {
+    request.log.error(err);
+    reply.code(500).send({ error: 'Internal server error' });
+  }
+}
+
+export async function getFeaturePermissionsHandler(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    const prisma = request.server.prisma;
+    const { featureCode } = request.params as any;
+
+    const permissions = await prisma.permission.findMany({
+      where: { featureCode },
+      select: {
+        id: true,
+        permissionCode: true,
+        permissionName: true,
+        description: true,
+        actionType: true,
+      },
+    });
+
+    return reply.send({
+      data: permissions.map((p: any) => ({
+        id: p.id,
+        code: p.permissionCode,
+        name: p.permissionName,
+        description: p.description,
+        actionType: p.actionType,
+      })),
+    });
+  } catch (err) {
+    request.log.error(err);
+    reply.code(500).send({ error: 'Internal server error' });
+  }
+}
+
 export async function createInstitutionMemberHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
     const prisma = (request as any).prisma;
@@ -311,6 +435,639 @@ export async function createInstitutionMemberHandler(request: FastifyRequest, re
     return reply.code(500).send({ error: 'Internal server error' });
   }
 }
+
+export async function createUserFlexible(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    const prisma = request.server.prisma;
+
+    const body = request.body as any;
+
+    const institutionId = Number(body.institutionId);
+    const payload = body.payload ?? body;
+
+    if (!institutionId) {
+      return reply.code(400).send({ error: 'institutionId is required' });
+    }
+
+    // -----------------------------
+    // Helpers
+    // -----------------------------
+    async function getAvailablePermissionsForPlan(planCode: string) {
+      const planFeatures = await prisma.planFeature.findMany({
+        where: { planCode, included: true },
+        select: { featureCode: true },
+      });
+
+      const featureCodes = planFeatures.map((pf: any) => pf.featureCode);
+
+      const permissions = await prisma.permission.findMany({
+        where: { featureCode: { in: featureCodes } },
+        select: { id: true },
+      });
+
+      return permissions.map((p: any) => p.id);
+    }
+
+    async function hashPassword(password: string): Promise<string> {
+      const bcrypt = require('bcrypt');
+      return bcrypt.hash(password, 10);
+    }
+
+    const warnings: string[] = [];
+
+    // 1️⃣ Get institution + plan
+    const institution = await prisma.institution.findUnique({
+      where: { id: institutionId },
+      include: { plan: true },
+    });
+
+    if (!institution?.plan) {
+      return reply.code(400).send({
+        error: 'Institution has no plan assigned',
+      });
+    }
+
+    const planCode = institution.plan.code;
+
+    // 2️⃣ Validate permissions inside plan
+    const availablePermissions = await getAvailablePermissionsForPlan(planCode);
+
+    const invalidPermissions = payload.permissionIds.filter(
+      (pid: number) => !availablePermissions.includes(pid)
+    );
+
+    if (invalidPermissions.length > 0) {
+      return reply.code(400).send({
+        error: `These permissions are not available in your plan: ${invalidPermissions.join(', ')}`,
+      });
+    }
+
+    // 3️⃣ Role handling
+    let role: any = null;
+    let rolePermissions: number[] = [];
+
+    if (payload.roleId) {
+      // role = await prisma.role.findFirst({
+      //   where: {
+      //     id: payload.roleId,
+      //     // institutionId,
+      //   },
+      //   include: { hierarchy: true },
+      // });
+
+      role = await prisma.role.findUnique({
+        where: { id: payload.roleId },
+        include: { hierarchy: true },
+      });
+
+      if (!role) {
+        return reply.code(400).send({
+          error: 'Invalid role for this institution',
+        });
+      }
+
+      const rolePerms = await prisma.rolePermission.findMany({
+        where: { roleId: payload.roleId },
+        select: { permissionId: true },
+      });
+
+      rolePermissions = rolePerms.map((rp: any) => rp.permissionId);
+
+      if (rolePermissions.length === 0) {
+        warnings.push(
+          `Role "${role.name}" has no default permissions configured. All permissions will be assigned manually.`
+        );
+      }
+    } else {
+      warnings.push('No role assigned. User will have direct permission assignments only.');
+    }
+
+    // 4️⃣ Permission diff logic
+    const permissionsToGrant = payload.permissionIds.filter(
+      (pid: number) => !rolePermissions.includes(pid)
+    );
+
+    // 5️⃣ Fetch modules + features for response summary
+    const permissionDetails = await prisma.permission.findMany({
+      where: { id: { in: payload.permissionIds } },
+      include: {
+        feature: {
+          include: { module: true },
+        },
+      },
+    });
+
+    const moduleSet = new Set<string>();
+    const featureSet = new Set<string>();
+
+    permissionDetails.forEach((p: any) => {
+      if (p.feature?.module) moduleSet.add(p.feature.module.code);
+      if (p.feature) featureSet.add(p.feature.code);
+    });
+
+    // 6️⃣ Transaction
+    const result = await prisma.$transaction(async (tx: any) => {
+      const user = await tx.user.create({
+        data: {
+          institutionId,
+          email: payload.email,
+          firstName: payload.firstName,
+          lastName: payload.lastName,
+          passwordHash: payload.password ? await hashPassword(payload.password) : null,
+          emailVerified: false,
+          mustChangePassword: !payload.password,
+          status: 'active',
+        },
+      });
+
+      if (payload.roleId) {
+        await tx.userRole.create({
+          data: {
+            userId: user.id,
+            roleId: payload.roleId,
+            assignedBy: payload.createdBy ?? null,
+          },
+        });
+      }
+
+      // NOTE: There is no user_permission_overrides table in schema,
+      // so we simply do not store overrides here.
+
+      return { userId: Number(user.id), email: user.email };
+    });
+
+    return reply.code(201).send({
+      data: {
+        userId: result.userId,
+        email: result.email,
+        roleId: payload.roleId || null,
+        roleName: role?.name || null,
+        assignedPermissions: payload.permissionIds.length,
+        assignedModules: Array.from(moduleSet),
+        assignedFeatures: Array.from(featureSet),
+      },
+      message: 'User created successfully',
+      warnings,
+    });
+  } catch (err) {
+    request.log.error(err, 'createInstitutionUser failed');
+    return reply.code(500).send({
+      error: 'Internal server error',
+    });
+  }
+}
+
+
+
+/**
+ * This is the structure we expect for effective permissions.
+ * (You can extend later as needed.)
+ */
+type PermissionInfo = {
+  id: number;
+  source?: "role" | "override";
+};
+
+/**
+ * Placeholder — return real permissions later.
+ */
+async function getUserEffectivePermissions(
+  userId: bigint
+): Promise<PermissionInfo[]> {
+  return [];
+}
+
+export async function getUserAccessSummaryHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const prisma = request.server.prisma;
+
+    const params = request.params as any;
+
+    const userId = BigInt(params.userId);
+
+    // -----------------------------
+    // 1️⃣ Get user + institution + plan
+    // -----------------------------
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        institution: {
+          select: {
+            name: true,
+            plan: {
+              select: {
+                name: true,
+                code: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return reply.code(404).send({
+        error: "User not found",
+      });
+    }
+
+    // -----------------------------
+    // 2️⃣ Roles
+    // -----------------------------
+    const userRoles = await prisma.userRole.findMany({
+      where: { userId },
+      include: {
+        role: {
+          include: {
+            hierarchy: true,
+          },
+        },
+      },
+    });
+
+    // -----------------------------
+    // 3️⃣ Effective permissions
+    // -----------------------------
+    const permissions = await getUserEffectivePermissions(userId);
+
+    // -----------------------------
+    // 4️⃣ Group: Module → Feature → Permission
+    // -----------------------------
+    const moduleMap = new Map<
+      string,
+      {
+        id: number;
+        code: string;
+        name: string;
+        features: Map<
+          string,
+          {
+            id: number;
+            code: string;
+            name: string;
+            permissions: PermissionInfo[];
+          }
+        >;
+      }
+    >();
+
+    for (const perm of permissions) {
+      const permDetail = await prisma.permission.findUnique({
+        where: { id: perm.id },
+        include: {
+          feature: {
+            include: { module: true },
+          },
+        },
+      });
+
+      if (!permDetail?.feature?.module) continue;
+
+      const module = permDetail.feature.module;
+      const feature = permDetail.feature;
+
+      if (!moduleMap.has(module.code)) {
+        moduleMap.set(module.code, {
+          id: module.id,
+          code: module.code,
+          name: module.name,
+          features: new Map(),
+        });
+      }
+
+      const moduleEntry = moduleMap.get(module.code)!;
+
+      if (!moduleEntry.features.has(feature.code)) {
+        moduleEntry.features.set(feature.code, {
+          id: feature.id,
+          code: feature.code,
+          name: feature.name,
+          permissions: [],
+        });
+      }
+
+      moduleEntry.features.get(feature.code)!.permissions.push(perm);
+    }
+
+    const modules = Array.from(moduleMap.values()).map((m) => ({
+      ...m,
+      features: Array.from(m.features.values()),
+    }));
+
+    return reply.code(200).send({
+      data: {
+        user: {
+          id: Number(user.id),
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          institutionName: user.institution?.name,
+          planName: user.institution?.plan?.name,
+          planCode: user.institution?.plan?.code,
+        },
+
+        roles: userRoles.map((ur: any) => ({
+          id: ur.role.id,
+          name: ur.role.name,
+          hierarchyName: ur.role.hierarchy?.name,
+          hierarchyLevel: ur.role.hierarchy?.level,
+        })),
+
+        summary: {
+          totalPermissions: permissions.length,
+          totalModules: modules.length,
+          totalFeatures: modules.reduce(
+            (sum, m) => sum + m.features.length,
+            0
+          ),
+          permissionsFromRole: permissions.filter(
+            (p:any) => p.source === "role"
+          ).length,
+          permissionsFromOverride: permissions.filter(
+            (p:any) => p.source === "override"
+          ).length,
+        },
+
+        modules,
+      },
+    });
+  } catch (err) {
+    request.log.error(err, "getUserAccessSummary failed");
+
+    return reply.code(500).send({
+      error: "Internal server error",
+    });
+  }
+}
+
+
+// interface FlexibleUserCreationPayload {
+//   email: string;
+//   firstName: string;
+//   lastName: string;
+//   password?: string;
+
+//   // Role assignment (optional if directly assigning permissions)
+//   roleId?: number;
+
+//   // Direct permission assignment
+//   // This works even if role has no permissions configured
+//   permissionIds: number[];
+
+//   // Direct module assignment (optional - inferred from permissions)
+//   moduleIds?: number[];
+
+//   // Creator info
+//   createdBy: number;
+// }
+
+// interface UserCreationResult {
+//   userId: number;
+//   email: string;
+//   roleId: number | null;
+//   roleName: string | null;
+//   assignedPermissions: number;
+//   assignedModules: string[];
+//   assignedFeatures: string[];
+//   message: string;
+//   warnings: string[];
+// }
+
+// // ============================================
+// // MAIN API: CREATE USER WITH FLEXIBLE PERMISSIONS
+// // ============================================
+
+// /**
+//  * Create user with flexible permission assignment
+//  * Works even when:
+//  * - Role has no permissions configured
+//  * - Same role but different permissions for different users
+//  * - No role assigned (direct permission assignment)
+//  *
+//  * @param institutionId - Institution ID
+//  * @param payload - User creation data
+//  * @returns Creation result with details
+//  */
+// export async function createUserFlexible(
+//   institutionId: number,
+//   payload: FlexibleUserCreationPayload,
+//   request: FastifyRequest,
+//   reply: FastifyReply
+// ): Promise<UserCreationResult> {
+//   try {
+//     const prisma = (request as any).prisma;
+//     const warnings: string[] = [];
+
+//     async function getAvailablePermissionsForPlan(
+//   planCode: string,
+
+// ) {
+//   const prisma = (request as any).prisma;
+//   const planFeatures = await prisma.plan_features.findMany({
+//     where: { plan_code: planCode, included: true },
+//     select: { feature_code: true },
+//   });
+
+//   const featureCodes = planFeatures.map((pf:any) => pf.feature_code);
+
+//   const permissions = await prisma.permissions.findMany({
+//     where: { feature_code: { in: featureCodes } },
+//     select: { id: true },
+//   });
+
+//   return permissions.map((p:any) => p.id);
+// }
+
+// async function hashPassword(password: string): Promise<string> {
+//   const bcrypt = require('bcrypt');
+//   return bcrypt.hash(password, 10);
+// }
+
+//     // 1. Get institution's plan to validate permissions
+//     const institution = await prisma.institutions.findUnique({
+//       where: { id: institutionId },
+//       include: { plans: true },
+//     });
+
+//     if (!institution?.plans) {
+//       throw new Error('Institution has no plan assigned');
+//     }
+
+//     const planCode = institution.plans.code;
+
+//     // 2. Validate all permissions are available in plan
+//     const availablePermissions = await getAvailablePermissionsForPlan(planCode);
+//     const invalidPermissions = payload.permissionIds.filter(
+//       (pid) => !availablePermissions.includes(pid)
+//     );
+
+//     if (invalidPermissions.length > 0) {
+//       throw new Error(
+//         `These permissions are not available in your plan: ${invalidPermissions.join(', ')}`
+//       );
+//     }
+
+//     // 3. Validate role (if provided)
+//     let role = null;
+//     let rolePermissions: number[] = [];
+
+//     if (payload.roleId) {
+//       role = await prisma.roles.findFirst({
+//         where: {
+//           id: payload.roleId,
+//           institution_id: institutionId,
+//         },
+//         include: {
+//           role_hierarchy: true,
+//         },
+//       });
+
+//       if (!role) {
+//         throw new Error('Invalid role for this institution');
+//       }
+
+//       // Get role's default permissions (might be empty!)
+//       const rolePerms = await prisma.role_permissions.findMany({
+//         where: { role_id: payload.roleId },
+//         select: { permission_id: true },
+//       });
+
+//       rolePermissions = rolePerms.map((rp:any) => rp.permission_id);
+
+//       // Warning if role has no permissions configured
+//       if (rolePermissions.length === 0) {
+//         warnings.push(
+//           `Role "${role.name}" has no default permissions configured. All permissions will be assigned as overrides.`
+//         );
+//       }
+//     } else {
+//       warnings.push('No role assigned. User will have direct permission assignments only.');
+//     }
+
+//     // 4. Calculate permission differences
+//     const permissionsToGrant = payload.permissionIds.filter(
+//       (pid) => !rolePermissions.includes(pid)
+//     );
+
+//     const permissionsToRevoke = rolePermissions.filter(
+//       (pid) => !payload.permissionIds.includes(pid)
+//     );
+
+//     // 5. Get module and feature info for the assigned permissions
+//     const permissionDetails = await prisma.permissions.findMany({
+//       where: {
+//         id: { in: payload.permissionIds },
+//       },
+//       include: {
+//         features: {
+//           include: {
+//             modules: true,
+//           },
+//         },
+//       },
+//     });
+
+//     const moduleSet = new Set<string>();
+//     const featureSet = new Set<string>();
+
+//     permissionDetails.forEach((p:any) => {
+//       if (p.features?.modules) {
+//         moduleSet.add(p.features.modules.code);
+//       }
+//       if (p.features) {
+//         featureSet.add(p.features.code);
+//       }
+//     });
+
+//     // 6. Create user in transaction
+//     const result = await prisma.$transaction(async (tx:any) => {
+//       // Create user
+//       const user = await tx.users.create({
+//         data: {
+//           institution_id: institutionId,
+//           email: payload.email,
+//           first_name: payload.firstName,
+//           last_name: payload.lastName,
+//           password_hash: payload.password ? await hashPassword(payload.password) : null,
+//           email_verified: false,
+//           must_change_password: !payload.password,
+//           status: 'active',
+//           updated_at: new Date(),
+//         },
+//       });
+
+//       // Assign role (if provided)
+//       if (payload.roleId) {
+//         await tx.user_roles.create({
+//           data: {
+//             user_id: user.id,
+//             role_id: payload.roleId,
+//             assigned_by: payload.createdBy,
+//             assigned_at: new Date(),
+//           },
+//         });
+//       }
+
+//       // Create permission grants (permissions not in role)
+//       if (permissionsToGrant.length > 0) {
+//         await tx.user_permission_overrides.createMany({
+//           data: permissionsToGrant.map((pid) => ({
+//             user_id: user.id,
+//             permission_id: pid,
+//             override_type: 'grant',
+//             reason:
+//               rolePermissions.length === 0
+//                 ? 'Direct permission assignment (role has no defaults)'
+//                 : 'Additional permission granted during user creation',
+//             granted_by: payload.createdBy,
+//             granted_at: new Date(),
+//           })),
+//         });
+//       }
+
+//       // Create permission revokes (permissions in role but not selected)
+//       if (permissionsToRevoke.length > 0) {
+//         await tx.user_permission_overrides.createMany({
+//           data: permissionsToRevoke.map((pid) => ({
+//             user_id: user.id,
+//             permission_id: pid,
+//             override_type: 'revoke',
+//             reason: 'Permission revoked during user creation',
+//             granted_by: payload.createdBy,
+//             granted_at: new Date(),
+//           })),
+//         });
+//       }
+
+//       return {
+//         userId: Number(user.id),
+//         email: user.email,
+//       };
+//     });
+
+//     return {
+//       userId: result.userId,
+//       email: result.email,
+//       roleId: payload.roleId || null,
+//       roleName: role?.name || null,
+//       assignedPermissions: payload.permissionIds.length,
+//       assignedModules: Array.from(moduleSet),
+//       assignedFeatures: Array.from(featureSet),
+//       message: 'User created successfully',
+//       warnings,
+//     };
+//   } catch (error) {
+//     console.error('Error creating user:', error);
+//     throw error;
+//   }
+// }
 
 // export async function getRoleDefaultPermissions(prisma: any, roleId: number): Promise<number[]> {
 //   try {
