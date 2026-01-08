@@ -41,10 +41,17 @@ export async function listBatchHandler(
         id: b.id,
         name: b.name,
         category: b.category_role?.name ?? null,
-        department: b.department_role.name,
-        coordinator: b.coordinator
-          ? `${b.coordinator.first_name ?? ''} ${b.coordinator.last_name ?? ''}`.trim()
-          : null,
+        department: {
+  id: b.department_role.id,
+  name: b.department_role.name,
+},
+
+coordinator: b.coordinator
+  ? {
+      id: b.coordinator.id,
+      name: `${b.coordinator.first_name ?? ''} ${b.coordinator.last_name ?? ''}`.trim(),
+    }
+  : null,
 
         // ✅ UI format
         academic_year:

@@ -3,7 +3,11 @@ import { PrismaClient, AssessmentStatus, QuestionDifficulty, QuestionType } from
 /* -------------------------------
    CREATE
 -------------------------------- */
-
+export interface AssessmentMetaData {
+  category: string;
+  assessment_type: string;
+  question_type: string;
+}
 export async function createAssessment(
   prisma: PrismaClient,
   data: {
@@ -14,6 +18,10 @@ export async function createAssessment(
     duration_minutes: number;
     created_by: bigint;
     tags?: string[];
+
+    category: string;
+    assessment_type: string;
+    question_type: string;
   }
 ) {
   return prisma.assessments.create({
@@ -24,12 +32,19 @@ export async function createAssessment(
       tags: data.tags ?? [],
       status: AssessmentStatus.draft,
 
+      metadata: {
+        category: data.category,
+        assessment_type: data.assessment_type,
+        question_type: data.question_type,
+      },
+
       institution: { connect: { id: data.institution_id } },
       feature: { connect: { id: data.feature_id } },
       creator: { connect: { id: data.created_by } },
     },
   });
 }
+
 
 /* -------------------------------
    AUDIENCE
@@ -100,32 +115,66 @@ export async function bulkAddQuestions(
    SUMMARY
 -------------------------------- */
 
-export async function getAssessmentSummary(prisma: PrismaClient, assessmentId: bigint) {
-  const questions = await prisma.assessment_questions.findMany({
-    where: { assessment_id: assessmentId },
-    include: { question: true },
+export async function getAssessmentSummary(
+  prisma: PrismaClient,
+  assessmentId: bigint
+) {
+  const assessment = await prisma.assessments.findUnique({
+    where: { id: assessmentId },
+    include: {
+      questions: {
+        include: {
+          question: true,
+        },
+      },
+    },
   });
 
-  const totalQuestions = questions.length;
-  const totalMarks = questions.reduce((s, q) => s + q.points, 0);
+  if (!assessment) {
+    throw new Error('Assessment not found');
+  }
 
-   const difficultyMix: Record<QuestionDifficulty, number> = {
+  const questions = assessment.questions;
+
+  const totalQuestions = questions.length;
+
+  const totalMarks = questions.reduce(
+    (sum, q) => sum + q.points,
+    0
+  );
+
+  const difficultyMix: Record<QuestionDifficulty, number> = {
     easy: 0,
     medium: 0,
     hard: 0,
     expert: 0,
   };
+
   questions.forEach(q => {
     difficultyMix[q.question.difficulty_level]++;
   });
 
+  const mandatoryCount = questions.filter(q => q.is_mandatory).length;
+  const metadata = assessment.metadata as AssessmentMetaData | null;
   return {
+    assessmentName: assessment.title,
+    category: metadata?.category ?? null,
+    assessmentType: metadata?.assessment_type ?? null,
+    questionType: metadata?.question_type ?? null,
+
     totalQuestions,
     totalMarks,
-    difficultyMix,
-    mandatoryCount: questions.filter(q => q.is_mandatory).length,
+
+    difficultyMix: {
+      easy: difficultyMix.easy,
+      medium: difficultyMix.medium,
+      hard: difficultyMix.hard,
+    },
+
+    mandatory: mandatoryCount === totalQuestions,
   };
 }
+
 
 /* -------------------------------
    SCHEDULE & PUBLISH

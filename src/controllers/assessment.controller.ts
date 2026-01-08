@@ -24,7 +24,13 @@ interface CreateAssessmentBody {
   description?: string;
   duration_minutes: number;
   tags?: string[];
+
+  // UI meta
+  category: 'Aptitude' | 'Domain';
+  assessment_type: 'Practice' | 'Assignment' | 'Mock Test';
+  question_type: 'MCQ' | 'Coding';
 }
+
 
 interface AssignAudienceBody {
   batch_ids: number[];
@@ -81,15 +87,21 @@ export async function createAssessmentHandler(
 ) {
   const user = req.user as any;
 
-  const assessment = await service.createAssessment(req.prisma, {
-    institution_id: user.institution_id,
-    created_by: BigInt(user.sub),
-    feature_id: req.body.feature_id,
-    title: req.body.title,
-    description: req.body.description,
-    duration_minutes: req.body.duration_minutes,
-    tags: req.body.tags,
-  });
+const assessment = await service.createAssessment(req.prisma, {
+  institution_id: user.institution_id,
+  created_by: BigInt(user.sub),
+  feature_id: req.body.feature_id,
+  title: req.body.title,
+  description: req.body.description,
+  duration_minutes: req.body.duration_minutes,
+  tags: req.body.tags,
+
+  // 🔥 PASS META
+  category: req.body.category,
+  assessment_type: req.body.assessment_type,
+  question_type: req.body.question_type,
+});
+
 
   reply.send(assessment);
 }
