@@ -12,12 +12,23 @@ import {
   listAssessmentsHandler,
   getAssessmentHandler,
   createMCQQuestionHandler,
+  assessmentAudienceMetaHandler,
+  listAssessmentQuestionsHandler,
+  getAssessmentAudienceHandler,
+  getAssessmentAccessHandler,
+  updateAssessmentAccessHandler,
 } from '../controllers/assessment.controller';
 
 export async function assessmentRoutes(app: any) {
   // META
   app.get('/assessments/meta', { preHandler: [authGuard] }, assessmentMetaHandler);
   app.get('/questions/meta', { preHandler: [authGuard] }, questionMetaHandler);
+  app.get(
+  '/assessments/audience/meta',
+  { preHandler: [authGuard] },
+  assessmentAudienceMetaHandler
+);
+
 
   // CORE FLOW
   app.post('/assessments', { preHandler: [authGuard] }, createAssessmentHandler);
@@ -36,4 +47,13 @@ app.post(
   // LIST
   app.get('/assessments', { preHandler: [authGuard] }, listAssessmentsHandler);
   app.get('/assessments/:id', { preHandler: [authGuard] }, getAssessmentHandler);
+  app.get(
+  '/assessments/:id/questions',
+  { preHandler: [authGuard] },
+  listAssessmentQuestionsHandler
+);
+app.get('/assessments/:id/audience',{preHandler: [authGuard]}, getAssessmentAudienceHandler);
+app.put('/assessments/:id/access', {preHandler: [authGuard]}, updateAssessmentAccessHandler);
+app.get('/assessments/:id/access', {preHandler: [authGuard]}, getAssessmentAccessHandler);
+
 }

@@ -183,37 +183,111 @@ export async function getAssessmentSummary(
 export async function scheduleAssessment(
   prisma: PrismaClient,
   assessmentId: bigint,
-  body: { start_time: string; end_time: string }
+  body: { publish_at: string; expiry_at?: string }
 ) {
   await prisma.assessments.update({
     where: { id: assessmentId },
     data: {
-      start_time: new Date(body.start_time),
-      end_time: new Date(body.end_time),
+      start_time: new Date(body.publish_at),
+      end_time: body.expiry_at ? new Date(body.expiry_at) : null,
     },
   });
 }
 
-export async function publishAssessment(prisma: PrismaClient, assessmentId: bigint) {
+
+export async function publishAssessment(
+  prisma: PrismaClient,
+  assessmentId: bigint
+) {
+  const assessment = await prisma.assessments.findUnique({
+    where: { id: assessmentId },
+    include: {
+      questions: true,
+      batches: true,
+    },
+  });
+
+  if (!assessment) throw new Error('Assessment not found');
+  if (assessment.questions.length === 0) throw new Error('No questions');
+  if (assessment.batches.length === 0) throw new Error('No audience');
+  if (!assessment.start_time) throw new Error('Publish time not set');
+
   return prisma.assessments.update({
     where: { id: assessmentId },
     data: {
       status: AssessmentStatus.published,
       published_at: new Date(),
+      // ⚠️ DO NOT TOUCH ACCESS FLAGS HERE
     },
   });
 }
+
+
 
 /* -------------------------------
    LIST & GET
 -------------------------------- */
 
-export async function listAssessments(prisma: PrismaClient, institutionId: number) {
-  return prisma.assessments.findMany({
-    where: { institution_id: institutionId },
-    orderBy: { created_at: 'desc' },
+export async function listAssessments(
+  prisma: PrismaClient,
+  institutionId: number
+) {
+  const assessments = await prisma.assessments.findMany({
+    where: {
+      institution_id: institutionId,
+    },
+    include: {
+      questions: true, // for count
+      batches: {
+        include: {
+          batch: true, // department / batch name
+        },
+      },
+    },
+    orderBy: {
+      updated_at: 'desc',
+    },
+  });
+
+  return assessments.map(a => {
+    const metadata = a.metadata as AssessmentMetaData | null;
+
+    return {
+      id: a.id.toString(),
+
+      // UI columns
+      assessmentName: a.title,
+      category: metadata?.category ?? '-',
+
+      departmentBatch:
+        a.batches.length > 0
+          ? a.batches.map(b => b.batch.name).join(', ')
+          : '-',
+
+      questions: a.questions.length,
+
+      publishedOn: a.published_at
+        ? a.published_at.toISOString().split('T')[0]
+        : '-',
+
+      expiryOn: a.end_time
+        ? a.end_time.toISOString().split('T')[0]
+        : '-',
+
+      lastEdited: a.updated_at
+        ? `${Math.max(
+            1,
+            Math.floor(
+              (Date.now() - a.updated_at.getTime()) / (1000 * 60 * 60 * 24)
+            )
+          )} days ago`
+        : '-',
+
+      status: a.status,
+    };
   });
 }
+
 
 export async function getAssessment(prisma: PrismaClient, assessmentId: bigint) {
   return prisma.assessments.findUnique({
@@ -231,6 +305,7 @@ export async function createMCQQuestion(
   institutionId: number,
   createdBy: bigint,
   body: {
+    topic: string;
     question_text: string;
     difficulty_level: QuestionDifficulty;
     question_type: QuestionType;
@@ -248,7 +323,7 @@ export async function createMCQQuestion(
       difficulty_level: body.difficulty_level,
       question_type: body.question_type,
       default_points: body.points,
-      tags: [],
+      tags: [body.topic], // 🔥 IMPORTANT for UI topic display
     },
   });
 
@@ -257,13 +332,13 @@ export async function createMCQQuestion(
     data: body.options.map((opt, index) => ({
       question_id: question.id,
       option_text: opt.option_text,
-      option_label: String.fromCharCode(65 + index), // A, B, C, D
+      option_label: String.fromCharCode(65 + index),
       is_correct: opt.is_correct,
       sort_order: index,
     })),
   });
 
-  // 3️⃣ Attach Question to Assessment
+  // 3️⃣ Attach to Assessment
   await prisma.assessment_questions.create({
     data: {
       assessment_id: assessmentId,
@@ -276,6 +351,206 @@ export async function createMCQQuestion(
   return {
     success: true,
     question_id: question.id.toString(),
+  };
+}
+
+
+
+export async function getAssessmentAudienceMeta(
+  prisma: PrismaClient,
+  institutionId: number
+) {
+  // 1️⃣ Fetch all batches with role info
+  const batches = await prisma.batches.findMany({
+    where: {
+      institution_id: institutionId,
+      is_active: true,
+    },
+    include: {
+      category_role: true,
+      department_role: true,
+    },
+    orderBy: {
+      name: 'asc',
+    },
+  });
+
+  /**
+   * Build structure:
+   * Category → Department → Batches
+   */
+  const categoryMap = new Map<number, any>();
+
+  for (const batch of batches) {
+    if (!batch.category_role || !batch.department_role) continue;
+
+    // CATEGORY
+    if (!categoryMap.has(batch.category_role.id)) {
+      categoryMap.set(batch.category_role.id, {
+        id: batch.category_role.id,
+        name: batch.category_role.name,
+        departments: new Map<number, any>(),
+      });
+    }
+
+    const category = categoryMap.get(batch.category_role.id);
+
+    // DEPARTMENT
+    if (!category.departments.has(batch.department_role.id)) {
+      category.departments.set(batch.department_role.id, {
+        id: batch.department_role.id,
+        name: batch.department_role.name,
+        batches: [],
+      });
+    }
+
+    const department = category.departments.get(batch.department_role.id);
+
+    // BATCH
+    department.batches.push({
+      id: batch.id,
+      name: batch.name,
+      academicYear: batch.academic_year,
+      semester: batch.semester,
+    });
+  }
+
+  // Convert Maps → Arrays
+  return {
+    institutionCategories: Array.from(categoryMap.values()).map(cat => ({
+      id: cat.id,
+      name: cat.name,
+      departments: Array.from(cat.departments.values()),
+    })),
+  };
+}
+
+export async function listAssessmentQuestions(
+  prisma: PrismaClient,
+  assessmentId: bigint
+) {
+  const rows = await prisma.assessment_questions.findMany({
+    where: { assessment_id: assessmentId },
+    orderBy: { added_at: 'asc' },
+    include: {
+      question: {
+        select: {
+          question_text: true,
+          difficulty_level: true,
+          question_type: true,
+          tags: true,
+        },
+      },
+    },
+  });
+
+  return rows.map((row, index) => ({
+    id: row.id.toString(),
+    questionNo: index + 1,
+    questionText: row.question.question_text,
+    marks: row.points,
+    isMandatory: row.is_mandatory,
+    topic: row.question.tags?.[0] ?? 'General',
+    questionTypeLabel: formatQuestionType(row.question.question_type),
+    difficulty: capitalize(row.question.difficulty_level),
+  }));
+}
+
+function formatQuestionType(type: string) {
+  switch (type) {
+    case 'single_correct':
+      return 'MCQ - Single correct answer';
+    case 'multiple_correct':
+      return 'MCQ - Multiple correct answers';
+    case 'true_false':
+      return 'True / False';
+    default:
+      return type;
+  }
+}
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+
+export async function getAssessmentAudience(
+  prisma: PrismaClient,
+  assessmentId: bigint
+) {
+  const rows = await prisma.assessment_batches.findMany({
+    where: { assessment_id: assessmentId },
+    include: {
+      batch: {
+        include: {
+          category_role: true,
+          department_role: true,
+        },
+      },
+    },
+  });
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return {
+    institutionCategory: rows[0].batch.category_role?.name ?? '-',
+    department: rows[0].batch.department_role?.name ?? '-',
+    batches: rows.map(r => r.batch.name),
+  };
+}
+
+
+export async function updateAssessmentAccess(
+  prisma: PrismaClient,
+  assessmentId: bigint,
+  body: {
+    shuffle_questions: boolean;
+    shuffle_options: boolean;
+    allow_reattempts: boolean;
+    show_correct_answers: boolean;
+    show_score_immediate: boolean;
+  }
+) {
+  await prisma.assessments.update({
+    where: { id: assessmentId },
+    data: {
+      shuffle_questions: body.shuffle_questions,
+      shuffle_options: body.shuffle_options,
+      show_correct_answers: body.show_correct_answers,
+      show_results_immediate: body.show_score_immediate,
+      max_attempts: body.allow_reattempts ? 3 : 1,
+    },
+  });
+}
+
+
+export async function getAssessmentAccess(
+  prisma: PrismaClient,
+  assessmentId: bigint
+) {
+  const assessment = await prisma.assessments.findUnique({
+    where: { id: assessmentId },
+    select: {
+      shuffle_questions: true,
+      shuffle_options: true,
+      max_attempts: true,
+      show_correct_answers: true,
+      show_results_immediate: true,
+    },
+  });
+
+  if (!assessment) {
+    throw new Error('Assessment not found');
+  }
+
+  return {
+    shuffleQuestions: assessment.shuffle_questions,
+    shuffleOptions: assessment.shuffle_options,
+    allowReattempts: assessment.max_attempts > 1,
+    showCorrectAnswers: assessment.show_correct_answers,
+    showScoreImmediately: assessment.show_results_immediate,
   };
 }
 
