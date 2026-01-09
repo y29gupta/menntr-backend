@@ -1,3 +1,6 @@
+(BigInt.prototype as any).toJSON = function() {
+    return this.toString();
+}
 import 'dotenv/config';
 import { buildApp } from './app';
 import { config } from './config';

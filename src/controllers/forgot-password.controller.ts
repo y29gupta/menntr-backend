@@ -5,7 +5,7 @@ import { EmailService } from '../services/email';
 import { Logger } from '../utils/logger';
 import { ValidationError, UnauthorizedError, NotFoundError } from '../utils/errors';
 import { config } from '../config';
-import { TokenType } from '@prisma/client';
+import { token_type } from '@prisma/client';
 import { Serializer } from '../utils/serializers';
 import { CookieManager } from '../utils/cookie';
 
@@ -92,7 +92,7 @@ export async function sendForgotPasswordEmail(request: FastifyRequest, reply: Fa
     data: {
       userId: user.id,
       tokenHash: hash,
-      type: TokenType.one_time_login,
+      type: 'email_verification',
       expiresAt: expiresAt,
     },
   });
@@ -104,12 +104,12 @@ export async function sendForgotPasswordEmail(request: FastifyRequest, reply: Fa
   await emailService.sendPasswordReset(email, resetLink, user.first_name);
 
   logger.audit({
-    userId: user.id.toString(),
+    user_id: user.id.toString(),
     action: 'SEND_PASSWORD_RESET',
     resource: 'auth',
     status: 'success',
-    ipAddress: request.ip,
-    userAgent: request.headers['user-agent'],
+    ip_address: request.ip,
+    user_agent: request.headers['user-agent'],
   });
 
   return reply.send({
@@ -133,7 +133,7 @@ export async function verifyResetToken(request: FastifyRequest, reply: FastifyRe
   const record = await prisma.authToken.findFirst({
     where: {
       tokenHash: tokenHash,
-      type: TokenType.one_time_login,
+      type: 'password_reset',
       usedAt: null,
       expiresAt: { gt: new Date() },
       user: { email },
@@ -166,7 +166,7 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
   const record = await prisma.authToken.findFirst({
     where: {
       tokenHash,
-      type: TokenType.one_time_login,
+      type: 'password_reset',
       usedAt: null,
       expiresAt: { gt: new Date() },
       user: { email },
@@ -199,7 +199,7 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
     prisma.authToken.updateMany({
       where: {
         userId: record.userId,
-        type: TokenType.one_time_login,
+        type: 'password_reset',
       },
       data: { usedAt: new Date() },
     }),
@@ -221,12 +221,12 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
   await emailService.sendPasswordChangedNotification(email);
 
   logger.audit({
-    userId: record.userId.toString(),
+    user_id: record.userId.toString(),
     action: 'RESET_PASSWORD',
     resource: 'auth',
     status: 'success',
-    ipAddress: request.ip,
-    userAgent: request.headers['user-agent'],
+    ip_address: request.ip,
+    user_agent: request.headers['user-agent'],
   });
 
 

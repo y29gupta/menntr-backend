@@ -10,38 +10,39 @@ import {
   updateCategory,
   getCategoryMeta,
   getCategoryByIdService,
+  deleteCategory as deleteCategoryService,
 } from '../services/category.service';
 import { Serializer } from '../utils/serializers';
 import { ValidationError, ForbiddenError } from '../utils/errors';
 
 export async function listCategories(req: FastifyRequest, reply: FastifyReply) {
   const prisma = req.prisma;
-  const userId = BigInt((req as any).user.sub);
+  const user_id = BigInt((req as any).user.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { institutionId: true },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
   });
 
-  if (!user?.institutionId) {
+  if (!user?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
   const categories = await getCategories(prisma, user.institutionId);
 
 reply.send(
-  categories.map((c) => ({
+  categories.map((c: any) => ({
     id: c.id,
     name: c.name,
     code: c.code,
-    departmentCount: c._count.children, // ✅ HERE
-    head: c.users.length
+    department_count: c._count.children, // ✅ HERE
+    head: c.user_roles.length
       ? {
-          id: Serializer.bigIntToString(c.users[0].user.id),
-          name: `${c.users[0].user.firstName ?? ''} ${
-            c.users[0].user.lastName ?? ''
+          id: Serializer.bigIntToString(c.user_roles[0].user.id),
+          name: `${c.user_roles[0].user.first_name ?? ''} ${
+            c.user_roles[0].user.last_name ?? ''
           }`.trim(),
-          email: c.users[0].user.email,
+          email: c.user_roles[0].user.email,
         }
       : null,
   }))
@@ -58,18 +59,18 @@ export async function addCategory(req: FastifyRequest, reply: FastifyReply) {
   }
 
   const prisma = req.prisma;
-  const userId = BigInt((req as any).user.sub);
+  const user_id = BigInt((req as any).user.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { institutionId: true },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
   });
 
-  if (!user?.institutionId) throw new ForbiddenError('No institution');
+  if (!user?.institution_id) throw new ForbiddenError('No institution');
 
   const category = await createCategory(
     prisma,
-    user.institutionId,
+    user.institution_id,
     parsed.data
   );
 
@@ -84,19 +85,19 @@ export async function editCategory(req: FastifyRequest, reply: FastifyReply) {
 
   const prisma = req.prisma;
   const categoryId = Number((req.params as any).id);
-  const userId = BigInt((req as any).user.sub);
+  const user_id = BigInt((req as any).user.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { institutionId: true },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
   });
 
-  if (!user?.institutionId) throw new ForbiddenError('No institution');
+  if (!user?.institution_id) throw new ForbiddenError('No institution');
 
   const updated = await updateCategory(
     prisma,
     categoryId,
-    user.institutionId,
+    user.institution_id,
     parsed.data
   );
 
@@ -114,22 +115,22 @@ export async function categoryMeta(
     throw new ForbiddenError('Unauthorized');
   }
 
-  const userId = BigInt(authUser.sub);
+  const user_id = BigInt(authUser.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
     select: {
-      institutionId: true,
-      roles: { include: { role: true } },
+      institution_id: true,
+      user_roles: { include: { role: true } },
     },
   });
 
-  if (!user?.institutionId) {
+  if (!user?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
   // 🔐 Optional role protection (recommended)
-  const allowed = user.roles.some((r: any) =>
+  const allowed = user.user_roles.some((r: any) =>
     ['Institution Admin', 'Category Admin'].includes(r.role.name)
   );
 
@@ -138,7 +139,7 @@ export async function categoryMeta(
   }
 
   // ✅ Service already returns safe, serialized data
-  const meta = await getCategoryMeta(prisma, user.institutionId);
+  const meta = await getCategoryMeta(prisma, user.institution_id);
 
   reply.send(meta);
 }
@@ -149,25 +150,25 @@ export async function getCategoryById(
 ) {
   const prisma = req.prisma;
   const categoryId = Number((req.params as any).id);
-  const userId = BigInt((req as any).user.sub);
+  const user_id = BigInt((req as any).user.sub);
 
   if (Number.isNaN(categoryId)) {
     throw new ValidationError('Invalid category id');
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { institutionId: true },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
   });
 
-  if (!user?.institutionId) {
+  if (!user?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
   const category = await getCategoryByIdService(
     prisma,
     categoryId,
-    user.institutionId
+    user.institution_id
   );
 
   reply.send({
@@ -175,13 +176,13 @@ export async function getCategoryById(
     name: category.name,
     code: category.code,
 
-    head: category.users.length
+    head: category.user_roles.length
       ? {
-          id: Serializer.bigIntToString(category.users[0].user.id),
-          name: `${category.users[0].user.firstName ?? ''} ${
-            category.users[0].user.lastName ?? ''
+          id: Serializer.bigIntToString(category.user_roles[0].user.id),
+          name: `${category.user_roles[0].user.first_name ?? ''} ${
+            category.user_roles[0].user.last_name ?? ''
           }`.trim(),
-          email: category.users[0].user.email,
+          email: category.user_roles[0].user.email,
         }
       : null,
 
@@ -191,4 +192,44 @@ export async function getCategoryById(
       code: d.code,
     })),
   });
+}
+
+
+
+export async function deleteCategory(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const prisma = req.prisma;
+  const categoryId = Number((req.params as any).id);
+  const user_id = BigInt((req as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: {
+      institution_id: true,
+      user_roles: { include: { role: true } },
+    },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  // 🔐 Only Institution / Category Admin
+  const allowed = user.user_roles.some((r: any) =>
+    ['Institution Admin', 'Category Admin'].includes(r.role.name)
+  );
+
+  if (!allowed) {
+    throw new ForbiddenError('Insufficient permissions');
+  }
+
+  await deleteCategoryService(
+    prisma,
+    categoryId,
+    user.institution_id
+  );
+
+  reply.send({ message: 'Category deleted successfully' });
 }

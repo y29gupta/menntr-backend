@@ -8,6 +8,7 @@ import {
   createDepartment,
   updateDepartment,
   getDepartmentMeta,
+  deleteDepartment as deleteDepartmentService,
 } from '../services/department.service';
 import { Serializer } from '../utils/serializers';
 import { ValidationError, ForbiddenError } from '../utils/errors';
@@ -17,14 +18,14 @@ export async function listDepartments(
   reply: FastifyReply
 ) {
   const prisma = request.prisma;
-  const userId = BigInt((request as any).user.sub);
+  const user_id = BigInt((request as any).user.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { institutionId: true },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
   });
 
-  if (!user?.institutionId) {
+  if (!user?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
@@ -32,30 +33,30 @@ export async function listDepartments(
 
   const { rows, total } = await getDepartments(
     prisma,
-    user.institutionId,
+    user.institution_id,
     Number(page),
     Number(limit),
     search
   );
 
-  const data = rows.map((r) => ({
+  const data = rows.map((r: any) => ({
     id: r.id,
     name: r.name,
     code: r.code,
     category: r.parent
       ? { id: r.parent.id, name: r.parent.name }
       : null,
-    hod: r.users.length
+    hod: r.user_roles.length
       ? {
-          id: Serializer.bigIntToString(r.users[0].user.id),
-          name: `${r.users[0].user.firstName ?? ''} ${
-            r.users[0].user.lastName ?? ''
+          id: Serializer.bigIntToString(r.user_roles[0].user.id),
+          name: `${r.user_roles[0].user.first_name ?? ''} ${
+            r.user_roles[0].user.last_name ?? ''
           }`.trim(),
-          email: r.users[0].user.email,
+          email: r.user_roles[0].user.email,
         }
       : null,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
   }));
 
   reply.send({ total, page, limit, data });
@@ -71,20 +72,20 @@ export async function addDepartment(
   }
 
   const prisma = request.prisma;
-  const userId = BigInt((request as any).user.sub);
+  const user_id = BigInt((request as any).user.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { institutionId: true },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
   });
 
-  if (!user?.institutionId) {
+  if (!user?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
   const department = await createDepartment(
     prisma,
-    user.institutionId,
+    user.institution_id,
     parsed.data
   );
 
@@ -101,22 +102,22 @@ export async function editDepartment(
   }
 
   const prisma = request.prisma;
-  const departmentId = Number((request.params as any).id);
-  const userId = BigInt((request as any).user.sub);
+  const department_id = Number((request.params as any).id);
+  const user_id = BigInt((request as any).user.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { institutionId: true },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
   });
 
-  if (!user?.institutionId) {
+  if (!user?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
   const updated = await updateDepartment(
     prisma,
-    departmentId,
-    user.institutionId,
+    department_id,
+    user.institution_id,
     parsed.data
   );
 
@@ -134,22 +135,22 @@ export async function departmentMeta(
     throw new ForbiddenError('Unauthorized');
   }
 
-  const userId = BigInt(authUser.sub);
+  const user_id = BigInt(authUser.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
     select: {
-      institutionId: true,
-      roles: { include: { role: true } },
+      institution_id: true,
+      user_roles: { include: { role: true } },
     },
   });
 
-  if (!user?.institutionId) {
+  if (!user?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
   // 🔐 Only admins can assign HOD
-  const allowed = user.roles.some((r: any) =>
+  const allowed = user.user_roles.some((r: any) =>
     ['Institution Admin', 'Category Admin'].includes(r.role.name)
   );
 
@@ -157,7 +158,45 @@ export async function departmentMeta(
     throw new ForbiddenError('Insufficient permissions');
   }
 
-  const meta = await getDepartmentMeta(prisma, user.institutionId);
+  const meta = await getDepartmentMeta(prisma, user.institution_id);
   reply.send(meta);
 }
 
+
+export async function deleteDepartment(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const prisma = request.prisma;
+  const department_id = Number((request.params as any).id);
+  const user_id = BigInt((request as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: {
+      institution_id: true,
+      user_roles: { include: { role: true } },
+    },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  // 🔐 Only admins can delete
+  const allowed = user.user_roles.some((r: any) =>
+    ['Institution Admin', 'Category Admin'].includes(r.role.name)
+  );
+
+  if (!allowed) {
+    throw new ForbiddenError('Insufficient permissions');
+  }
+
+  await deleteDepartmentService(
+    prisma,
+    department_id,
+    user.institution_id
+  );
+
+  reply.send({ message: 'Department deleted successfully' });
+}

@@ -3,6 +3,7 @@ import {
   listDepartments,
   editDepartment,
   departmentMeta,
+  deleteDepartment,
 } from '../controllers/department.controller';
 import { authGuard } from '../hooks/auth.guard';
 
@@ -14,5 +15,10 @@ export async function departmentRoutes(app: any) {
   '/organization/departments/meta',
   { preHandler: [authGuard] },
   departmentMeta
+);
+app.delete(
+  '/organization/departments/:id',
+  { preHandler: [authGuard] },
+  deleteDepartment
 );
 }

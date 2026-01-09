@@ -1,11 +1,11 @@
 
-import { Role } from '@prisma/client';
+import { roles } from '@prisma/client';
 
-export type HierarchyNode = Role & {
+export type HierarchyNode = roles & {
   children: HierarchyNode[];
 };
 
-export function buildTree(roles: Role[]): HierarchyNode[] {
+export function buildTree(roles: roles[]): HierarchyNode[] {
   const map = new Map<number, HierarchyNode>();
 
   const roots: HierarchyNode[] = [];
@@ -17,8 +17,8 @@ export function buildTree(roles: Role[]): HierarchyNode[] {
   for (const role of roles) {
     const node = map.get(role.id)!;
 
-    if (role.parentId) {
-      const parent = map.get(role.parentId);
+    if (role.parent_id) {
+      const parent = map.get(role.parent_id);
       parent?.children.push(node);
     } else {
       roots.push(node);

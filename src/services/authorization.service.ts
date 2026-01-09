@@ -1,18 +1,25 @@
-export async function resolveUserPermissions(prisma:any, userId:any) {
-  const permissions = await prisma.permission.findMany({
+export async function resolveUserPermissions(
+  prisma: any,
+  userId: number
+) {
+  const permissions = await prisma.permissions.findMany({
     where: {
-      roles: {
+      role_permissions: {
         some: {
           role: {
-            users: {
-              some: { userId },
+            user_roles: {
+              some: {
+                user_id: userId,
+              },
             },
           },
         },
       },
     },
-    select: { permissionCode: true },
+    select: {
+      permission_code: true,
+    },
   });
 
-  return permissions.map((p:any) => p.permissionCode);
+  return permissions.map((p: any) => p.permission_code);
 }

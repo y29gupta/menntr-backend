@@ -5,12 +5,12 @@ const DEPARTMENT_LEVEL = 3;
 
 export async function buildOrganizationHierarchy(
   prisma: PrismaClient,
-  institutionId: number
+  institution_id: number
 ) {
-  const categories = await prisma.role.findMany({
+  const categories = await prisma.roles.findMany({
     where: {
-      institutionId,
-      roleHierarchyId: CATEGORY_LEVEL,
+      institution_id: institution_id,
+      role_hierarchy_id: CATEGORY_LEVEL,
       code: { not: null },
     },
     select: {
@@ -18,14 +18,14 @@ export async function buildOrganizationHierarchy(
         select: {
           children: {
             where: {
-              roleHierarchyId: DEPARTMENT_LEVEL,
+              role_hierarchy_id: DEPARTMENT_LEVEL,
               code: { not: null },
             },
           },
         },
       },
     },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { created_at: 'asc' },
   });
 
   // 🔹 ROOT
@@ -46,7 +46,7 @@ export async function buildOrganizationHierarchy(
   }
 
   // 🟢 CASE 2+: categories exist
-  categories.forEach((cat) => {
+  categories.forEach((cat: any) => {
     const departmentCount = cat._count.children;
 
     hierarchy.institution.children.push({
@@ -58,6 +58,7 @@ export async function buildOrganizationHierarchy(
             }))
           : [],
     });
+
   });
 
   return hierarchy;

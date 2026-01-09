@@ -1,0 +1,309 @@
+import { FastifyRequest, FastifyReply } from 'fastify';
+import * as service from '../services/assessment.service';
+import { PrismaClient, QuestionDifficulty } from '@prisma/client';
+
+/* --------------------------------
+   TYPES
+--------------------------------- */
+
+interface CreateMCQBody {
+  topic: string; // UI selected topic
+  question_text: string;
+  question_type: 'single_correct' | 'multiple_correct' | 'true_false';
+  difficulty_level: 'easy' | 'medium' | 'hard';
+  points: number;
+  negative_points?: number;
+  is_mandatory?: boolean;
+  options: {
+    option_text: string;
+    is_correct: boolean;
+  }[];
+}
+
+interface CreateAssessmentBody {
+  feature_id: number;
+  title: string;
+  description?: string;
+  duration_minutes: number;
+  tags?: string[];
+
+  // UI meta
+  category: 'Aptitude' | 'Domain';
+  assessment_type: 'Practice' | 'Assignment' | 'Mock Test';
+  question_type: 'MCQ' | 'Coding';
+}
+
+
+interface AssignAudienceBody {
+  batch_ids: number[];
+}
+
+interface AddQuestionBody {
+  question_id: bigint;
+  points: number;
+  negative_points?: number;
+  is_mandatory?: boolean;
+  sort_order?: number;
+  section_name?: string;
+}
+
+interface BulkAddQuestionsBody {
+  question_ids: bigint[];
+}
+
+interface ScheduleBody {
+  start_time: string;
+  end_time: string;
+}
+
+/* --------------------------------
+   META APIs
+--------------------------------- */
+
+// Screen 1 – Assessment Meta
+export async function assessmentMetaHandler(_: FastifyRequest, reply: FastifyReply) {
+  reply.send({
+    assessmentCategories: ['Aptitude', 'Domain'],
+    assessmentTypes: ['Practice', 'Assignment', 'Mock Test'],
+    questionTypes: ['MCQ', 'Coding'],
+  });
+}
+
+// Screen 3 – Question Meta
+export async function questionMetaHandler(_: FastifyRequest, reply: FastifyReply) {
+  reply.send({
+    topics: ['Quantitative Aptitude', 'Logical Reasoning', 'Verbal Ability'],
+    difficulties: ['easy', 'medium', 'hard'],
+    questionTypes: ['single_correct', 'multiple_correct', 'true_false'],
+  });
+}
+
+/* --------------------------------
+   CORE FLOW
+--------------------------------- */
+
+// STEP 1 – Create Assessment
+export async function createAssessmentHandler(
+  req: FastifyRequest<{ Body: CreateAssessmentBody }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+const assessment = await service.createAssessment(req.prisma, {
+  institution_id: user.institution_id,
+  created_by: BigInt(user.sub),
+  feature_id: req.body.feature_id,
+  title: req.body.title,
+  description: req.body.description,
+  duration_minutes: req.body.duration_minutes,
+  tags: req.body.tags,
+
+  // 🔥 PASS META
+  category: req.body.category,
+  assessment_type: req.body.assessment_type,
+  question_type: req.body.question_type,
+});
+
+
+  reply.send(assessment);
+}
+
+// STEP 2 – Assign Audience
+export async function assignAudienceHandler(
+  req: FastifyRequest<{ Params: { id: string }; Body: AssignAudienceBody }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  await service.assignAudience(
+    req.prisma,
+    BigInt(req.params.id),
+    req.body.batch_ids,
+    BigInt(user.sub)
+  );
+
+  reply.send({ success: true });
+}
+
+// STEP 3 – Add Question
+export async function addQuestionHandler(
+  req: FastifyRequest<{ Params: { id: string }; Body: AddQuestionBody }>,
+  reply: FastifyReply
+) {
+  const result = await service.addQuestion(
+    req.prisma,
+    BigInt(req.params.id),
+    req.body
+  );
+
+  reply.send(result);
+}
+
+// STEP 3 – Bulk Upload
+export async function bulkAddQuestionsHandler(
+  req: FastifyRequest<{ Params: { id: string }; Body: BulkAddQuestionsBody }>,
+  reply: FastifyReply
+) {
+  const result = await service.bulkAddQuestions(
+    req.prisma,
+    BigInt(req.params.id),
+    req.body.question_ids
+  );
+
+  reply.send(result);
+}
+
+// STEP 4 – Summary
+export async function assessmentSummaryHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const summary = await service.getAssessmentSummary(
+    req.prisma,
+    BigInt(req.params.id)
+  );
+
+  reply.send(summary);
+}
+
+// STEP 5 – Schedule
+export async function scheduleAssessmentHandler(
+  req: FastifyRequest<{
+    Params: { id: string };
+    Body: {
+      publish_at: string;
+      expiry_at?: string;
+    };
+  }>,
+  reply: FastifyReply
+) {
+  await service.scheduleAssessment(
+    req.prisma,
+    BigInt(req.params.id),
+    req.body
+  );
+
+  reply.send({ success: true });
+}
+
+
+// STEP 6 – Publish
+export async function publishAssessmentHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const assessment = await service.publishAssessment(
+    req.prisma,
+    BigInt(req.params.id)
+  );
+
+  reply.send(assessment);
+}
+
+// LIST & GET
+export async function listAssessmentsHandler(req: FastifyRequest, reply: FastifyReply) {
+  const user = req.user as any;
+  const list = await service.listAssessments(req.prisma, user.institution_id);
+  reply.send(list);
+}
+
+export async function getAssessmentHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const assessment = await service.getAssessment(req.prisma, BigInt(req.params.id));
+  reply.send(assessment);
+}
+
+
+
+export async function createMCQQuestionHandler(
+  req: FastifyRequest<{ Params: { id: string }; Body: CreateMCQBody }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const result = await service.createMCQQuestion(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id,
+    BigInt(user.sub),
+    req.body
+  );
+
+  reply.send(result);
+}
+
+
+
+export async function assessmentAudienceMetaHandler(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const data = await service.getAssessmentAudienceMeta(
+    req.prisma,
+    user.institution_id
+  );
+
+  reply.send(data);
+}
+
+export async function listAssessmentQuestionsHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const data = await service.listAssessmentQuestions(
+    req.prisma,
+    BigInt(req.params.id)
+  );
+  reply.send(data);
+}
+
+
+export async function getAssessmentAudienceHandler(
+  req: FastifyRequest<{Params: {id:string}}>,
+  reply: FastifyReply
+){
+  const data = await service.getAssessmentAudience(
+    req.prisma,
+    BigInt(req.params.id)
+  );
+  reply.send(data);
+}
+
+export async function updateAssessmentAccessHandler(
+  req: FastifyRequest<{
+    Params: { id: string };
+    Body: {
+      shuffle_questions: boolean;
+      shuffle_options: boolean;
+      allow_reattempts: boolean;
+      show_correct_answers: boolean;
+      show_score_immediate: boolean;
+    };
+  }>,
+  reply: FastifyReply
+) {
+  await service.updateAssessmentAccess(
+    req.prisma,
+    BigInt(req.params.id),
+    req.body
+  );
+
+  reply.send({ success: true });
+}
+
+
+export async function getAssessmentAccessHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const data = await service.getAssessmentAccess(
+    req.prisma,
+    BigInt(req.params.id)
+  );
+
+  reply.send(data);
+}

@@ -1,13 +1,13 @@
 import { FastifyBaseLogger } from 'fastify';
 
 export interface AuditLogData {
-  userId?: string;
+  user_id?: string;
   action: string;
   resource: string;
-  resourceId?: string;
+  resource_id?: string;
   status: 'success' | 'failure';
-  ipAddress?: string;
-  userAgent?: string;
+  ip_address?: string;
+  user_agent?: string;
   metadata?: Record<string, any>;
 }
 
@@ -23,8 +23,8 @@ export class Logger {
       {
         err: error,
         ...context,
-        errorMessage: error?.message,
-        errorStack: error?.stack,
+        error_message: error?.message,
+        error_stack: error?.stack,
       },
       message
     );
