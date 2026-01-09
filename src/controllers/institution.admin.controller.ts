@@ -51,7 +51,7 @@ export async function getRolesHierarchy(request: FastifyRequest, reply: FastifyR
   try {
     const prisma = request.server.prisma;
 
-    const roles = await prisma.roleHierarchy.findMany({
+    const roles = await prisma.role_hierarchy.findMany({
       select: {
         id: true,
         name: true,
@@ -255,28 +255,47 @@ export async function getAvailableModulesHandler(request: FastifyRequest, reply:
 export async function getModulesHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
     const prisma = request.server.prisma;
-    const currentUser: any = request.user;
-    console.log('currentUser', currentUser);
+    const currentUser = request.user;
 
-    if (!currentUser?.institutionId) {
-      return reply.code(400).send({ error: 'Institution ID missing' });
+    if (!currentUser?.institution_id) {
+      return reply.code(400).send({
+        error: 'Institution ID missing',
+      });
     }
 
-    const institution = await prisma.institution.findUnique({
-      where: { id: Number(currentUser.institutionId) },
+    /**
+     * 1️⃣ Get institution plan
+     */
+    const institution = await prisma.institutions.findUnique({
+      where: {
+        id: currentUser.institution_id,
+      },
       select: {
-        planId: true,
+        plan_id: true,
       },
     });
 
-    if (!institution?.planId) {
-      return reply.code(400).send({ error: 'Institution has no plan' });
+    if (!institution?.plan_id) {
+      return reply.code(400).send({
+        error: 'Institution has no plan',
+      });
     }
 
-    const planModules = await prisma.planModule.findMany({
+    /**
+     * 2️⃣ Get plan modules + institution overrides
+     */
+    const planModules = await prisma.plan_modules.findMany({
       where: {
-        planId: institution.planId,
+        plan_id: institution.plan_id,
         included: true,
+        module: {
+          institution_modules: {
+            none: {
+              institution_id: currentUser.institution_id,
+              enabled: false,
+            },
+          },
+        },
       },
       select: {
         module: {
@@ -287,18 +306,30 @@ export async function getModulesHandler(request: FastifyRequest, reply: FastifyR
             description: true,
             icon: true,
             category: true,
-            isCore: true,
+            is_core: true,
+            is_system_module: true,
+            sort_order: true,
           },
+        },
+      },
+      orderBy: {
+        module: {
+          sort_order: 'asc',
         },
       },
     });
 
+    /**
+     * 3️⃣ Response
+     */
     return reply.send({
       data: planModules.map((pm: any) => pm.module),
     });
-  } catch (err) {
-    request.log.error(err);
-    reply.code(500).send({ error: 'Internal server error' });
+  } catch (error) {
+    request.log.error(error);
+    return reply.code(500).send({
+      error: 'Internal server error',
+    });
   }
 }
 
@@ -309,8 +340,8 @@ export async function getModuleFeaturesHandler(request: FastifyRequest, reply: F
 
     const currentUser: any = request.user;
 
-    const institution = await prisma.institution.findUnique({
-      where: { id: Number(currentUser.institutionId) },
+    const institution = await prisma.institutions.findUnique({
+      where: { id: Number(currentUser.institution_id) },
       select: {
         plan: { select: { code: true } },
       },
@@ -318,16 +349,16 @@ export async function getModuleFeaturesHandler(request: FastifyRequest, reply: F
 
     const planCode = institution?.plan?.code;
 
-    const planFeatures = await prisma.planFeature.findMany({
+    const planFeatures = await prisma.plan_features.findMany({
       where: { planCode, included: true },
-      select: { featureCode: true },
+      select: { feature_code: true },
     });
 
-    const allowedFeatureCodes = planFeatures.map((p: any) => p.featureCode);
+    const allowedFeatureCodes = planFeatures.map((p: any) => p.feature_code);
 
-    const features = await prisma.feature.findMany({
+    const features = await prisma.features.findMany({
       where: {
-        moduleId: Number(moduleId),
+        module_id: Number(moduleId),
         code: { in: allowedFeatureCodes },
       },
       select: {
@@ -349,25 +380,25 @@ export async function getFeaturePermissionsHandler(request: FastifyRequest, repl
   try {
     const prisma = request.server.prisma;
     const { featureCode } = request.params as any;
-
-    const permissions = await prisma.permission.findMany({
-      where: { featureCode },
+    console.log('feature_code', featureCode);
+    const permissions = await prisma.permissions.findMany({
+      where: { feature_code: featureCode },
       select: {
         id: true,
-        permissionCode: true,
-        permissionName: true,
+        permission_code: true,
+        permission_name: true,
         description: true,
-        actionType: true,
+        action_type: true,
       },
     });
-
+    console.log('permissions', permissions);
     return reply.send({
       data: permissions.map((p: any) => ({
         id: p.id,
-        code: p.permissionCode,
-        name: p.permissionName,
+        code: p.permission_code,
+        name: p.permission_name,
         description: p.description,
-        actionType: p.actionType,
+        action_type: p.action_type,
       })),
     });
   } catch (err) {
@@ -441,7 +472,7 @@ export async function createInstitutionMemberHandler(request: FastifyRequest, re
 
 export async function createUserFlexible(request: FastifyRequest, reply: FastifyReply) {
   try {
-    const prisma = request.server.prisma;
+    const prisma = request.prisma;
 
     const body = request.body as any;
 
@@ -456,15 +487,15 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
     // Helpers
     // -----------------------------
     async function getAvailablePermissionsForPlan(planCode: string) {
-      const planFeatures = await prisma.planFeature.findMany({
-        where: { planCode, included: true },
-        select: { featureCode: true },
+      const planFeatures = await prisma.plan_features.findMany({
+        where: { plan_code: planCode, included: true },
+        select: { feature_code: true },
       });
 
-      const featureCodes = planFeatures.map((pf: any) => pf.featureCode);
+      const featureCodes = planFeatures.map((pf: any) => pf.feature_code);
 
-      const permissions = await prisma.permission.findMany({
-        where: { featureCode: { in: featureCodes } },
+      const permissions = await prisma.permissions.findMany({
+        where: { feature_code: { in: featureCodes } },
         select: { id: true },
       });
 
@@ -479,7 +510,7 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
     const warnings: string[] = [];
 
     // 1️⃣ Get institution + plan
-    const institution = await prisma.institution.findUnique({
+    const institution = await prisma.institutions.findUnique({
       where: { id: institutionId },
       include: { plan: true },
     });
@@ -518,7 +549,7 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
       //   include: { hierarchy: true },
       // });
 
-      role = await prisma.role.findUnique({
+      role = await prisma.roles.findUnique({
         where: { id: payload.roleId },
         include: { hierarchy: true },
       });
@@ -529,9 +560,9 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
         });
       }
 
-      const rolePerms = await prisma.rolePermission.findMany({
-        where: { roleId: payload.roleId },
-        select: { permissionId: true },
+      const rolePerms = await prisma.role_permissions.findMany({
+        where: { role_id: payload.roleId },
+        select: { permission_id: true },
       });
 
       rolePermissions = rolePerms.map((rp: any) => rp.permissionId);
@@ -551,7 +582,7 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
     );
 
     // 5️⃣ Fetch modules + features for response summary
-    const permissionDetails = await prisma.permission.findMany({
+    const permissionDetails = await prisma.permissions.findMany({
       where: { id: { in: payload.permissionIds } },
       include: {
         feature: {
@@ -570,25 +601,25 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
 
     // 6️⃣ Transaction
     const result = await prisma.$transaction(async (tx: any) => {
-      const user = await tx.user.create({
+      const user = await tx.users.create({
         data: {
-          institutionId,
+          institution_id: institutionId,
           email: payload.email,
-          firstName: payload.firstName,
-          lastName: payload.lastName,
-          passwordHash: payload.password ? await hashPassword(payload.password) : null,
-          emailVerified: false,
-          mustChangePassword: !payload.password,
+          first_name: payload.firstName,
+          last_name: payload.lastName,
+          password_hash: payload.password ? await hashPassword(payload.password) : null,
+          email_verified: false,
+          must_change_password: !payload.password,
           status: 'active',
         },
       });
 
       if (payload.roleId) {
-        await tx.userRole.create({
+        await tx.user_roles.create({
           data: {
-            userId: user.id,
-            roleId: payload.roleId,
-            assignedBy: payload.createdBy ?? null,
+            user_id: user.id,
+            role_id: payload.roleId,
+            assigned_by: payload.createdBy ?? null,
           },
         });
       }
@@ -601,9 +632,9 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
 
     return reply.code(201).send({
       data: {
-        userId: result.userId,
+        userId: result.user_id,
         email: result.email,
-        roleId: payload.roleId || null,
+        roleId: payload.role_id || null,
         roleName: role?.name || null,
         assignedPermissions: payload.permissionIds.length,
         assignedModules: Array.from(moduleSet),
@@ -873,12 +904,7 @@ export async function getUserAccessSummaryHandler(request: FastifyRequest, reply
   }
 }
 
-
-
-export async function bulkCreateUsersFromExcel(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function bulkCreateUsersFromExcel(request: FastifyRequest, reply: FastifyReply) {
   try {
     const prisma = request.server.prisma;
 
@@ -944,14 +970,14 @@ export async function bulkCreateUsersFromExcel(
       select: { featureCode: true },
     });
 
-    const featureCodes = planFeatures.map((p:any) => p.featureCode);
+    const featureCodes = planFeatures.map((p: any) => p.featureCode);
 
     const allowedPermissions = await prisma.permission.findMany({
       where: { featureCode: { in: featureCodes } },
       select: { id: true },
     });
 
-    const allowedPermissionIds = allowedPermissions.map((p:any) => p.id);
+    const allowedPermissionIds = allowedPermissions.map((p: any) => p.id);
 
     // ------------------------------
     // RESULT BUCKETS
@@ -978,13 +1004,11 @@ export async function bulkCreateUsersFromExcel(
           .filter(Boolean);
 
         const invalidPermissions = permissionIds.filter(
-          pid => !allowedPermissionIds.includes(pid)
+          (pid) => !allowedPermissionIds.includes(pid)
         );
 
         if (invalidPermissions.length > 0) {
-          throw new Error(
-            `Invalid permissions: ${invalidPermissions.join(', ')}`
-          );
+          throw new Error(`Invalid permissions: ${invalidPermissions.join(', ')}`);
         }
 
         // ------------------------------
@@ -1008,25 +1032,21 @@ export async function bulkCreateUsersFromExcel(
           });
 
           if (rolePerms.length === 0) {
-            warnings.push(
-              `Row ${excelRow}: Role "${role.name}" has no default permissions`
-            );
+            warnings.push(`Row ${excelRow}: Role "${role.name}" has no default permissions`);
           }
         }
 
         // ------------------------------
         // TRANSACTION
         // ------------------------------
-        await prisma.$transaction(async (tx:any) => {
+        await prisma.$transaction(async (tx: any) => {
           const user = await tx.user.create({
             data: {
               institutionId,
               email: row.email,
               firstName: row.firstName,
               lastName: row.lastName,
-              passwordHash: row.password
-                ? await bcrypt.hash(row.password, 10)
-                : null,
+              passwordHash: row.password ? await bcrypt.hash(row.password, 10) : null,
               mustChangePassword: !row.password,
               status: 'active',
             },
@@ -1075,4 +1095,3 @@ export async function bulkCreateUsersFromExcel(
     });
   }
 }
-

@@ -188,7 +188,10 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
   }
 }
 
-export async function updateInstitutionPutHandler(request: FastifyRequest, reply: FastifyReply) {
+export async function updateInstitutionPutHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
   try {
     //  Validate URL params
     const paramsParsed = InstitutionIdParamsSchema.safeParse(request.params);
@@ -199,7 +202,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
       });
     }
 
-
+    //  Validate body
     const bodyParsed = UpdateInstitutionPutBody.safeParse(request.body);
     if (!bodyParsed.success) {
       return reply.code(400).send({
@@ -212,7 +215,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
     const prisma = request.prisma;
 
     //  Check if institution exists
-    const existingInstitution = await prisma.institution.findUnique({
+    const existingInstitution = await prisma.institutions.findUnique({
       where: { id },
     });
 
@@ -222,8 +225,8 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
       });
     }
 
-
-    const updatedInstitution = await prisma.institution.update({
+    //  Update institution
+    const updatedInstitution = await prisma.institutions.update({
       where: { id },
       data: {
         name: bodyParsed.data.name,
@@ -251,6 +254,7 @@ export async function updateInstitutionPutHandler(request: FastifyRequest, reply
     });
   }
 }
+
 
 interface InstitutionQuery {
   page?: string;
@@ -308,7 +312,7 @@ export async function getInstitutionsHandler(
     }
 
     if (contactEmail) {
-      where.contactEmail = { contains: contactEmail, mode: 'insensitive' };
+      where.contact_email = { contains: contactEmail, mode: 'insensitive' };
     }
 
     if (status) {
@@ -328,20 +332,20 @@ export async function getInstitutionsHandler(
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
         { code: { contains: search, mode: 'insensitive' } },
-        { contactEmail: { contains: search, mode: 'insensitive' } },
+        { contact_email: { contains: search, mode: 'insensitive' } },
       ];
     }
 
-    const [data, meta] = await prisma.institution
+    const [data, meta] = await prisma.institutions
       .paginate({
         where,
         select: {
           id: true,
           name: true,
           code: true,
-          contactEmail: true,
+          contact_email: true,
           status: true,
-          createdAt: true,
+          created_at: true,
           plan: {
             select: {
               id: true,
@@ -351,7 +355,7 @@ export async function getInstitutionsHandler(
           },
         },
         orderBy: {
-          createdAt: 'desc',
+          created_at: 'desc',
         },
       })
       .withPages({
@@ -374,7 +378,11 @@ export async function getInstitutionsHandler(
   }
 }
 
-export async function getPlanModulesHandler(request: FastifyRequest, reply: FastifyReply) {
+
+export async function getPlanModulesHandler(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
   try {
     const parsed = GetPlanModulesParamsSchema.safeParse(request.params);
 
@@ -388,14 +396,14 @@ export async function getPlanModulesHandler(request: FastifyRequest, reply: Fast
     const { planId } = parsed.data;
     const prisma = (request as any).prisma;
 
-    const planModules = await prisma.planModule.findMany({
+    const planModules = await prisma.plan_modules.findMany({
       where: {
-        planId,
+        plan_id: planId,
         included: true,
       },
       orderBy: {
         module: {
-          sortOrder: 'asc',
+          sort_order: 'asc',
         },
       },
       select: {
@@ -427,7 +435,7 @@ export async function getPlanModulesHandler(request: FastifyRequest, reply: Fast
       planId: planModules[0].plan.id,
       planCode: planModules[0].plan.code,
       planName: planModules[0].plan.name,
-      modules: planModules.map((pm: any) => ({
+      modules: planModules.map((pm:any) => ({
         id: pm.module.id,
         code: pm.module.code,
         name: pm.module.name,
@@ -436,6 +444,8 @@ export async function getPlanModulesHandler(request: FastifyRequest, reply: Fast
     });
   } catch (err) {
     request.server.log.error({ err }, 'getPlanModulesHandler failed');
-    return reply.code(500).send({ error: 'Internal server error' });
+    return reply.code(500).send({
+      error: 'Internal server error',
+    });
   }
 }

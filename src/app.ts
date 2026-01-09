@@ -22,7 +22,7 @@ import {userManagementRoutes} from './routes/userManagement.routes';
 import { batchRoutes } from './routes/batch.routes';
 import {mcqRoutes} from './routes/mcq.routes';
 import { assessmentRoutes } from './routes/assessment.routes';
-import multipart from '@fastify/multipart';
+// import multipart from '@fastify/multipart';
 import {institutionAdminRoutes} from './routes/institution.admin';
 
 export function buildApp() {
@@ -41,9 +41,9 @@ export function buildApp() {
     },
   });
 
-  app.register(multipart, {
-    attachFieldsToBody: false,
-  });
+  // app.register(multipart, {
+  //   attachFieldsToBody: false,
+  // });
 
   app.register(cors, {
     origin: [config.frontend.frontendUrl, "https://menntr-frontend.netlify.app"],
@@ -112,6 +112,7 @@ export function buildApp() {
   app.register(batchRoutes);
   app.register(mcqRoutes);
   app.register(assessmentRoutes);
+  app.register(institutionAdminRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {
