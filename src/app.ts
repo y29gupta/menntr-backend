@@ -11,12 +11,17 @@ import { errorHandler } from './middleware/errorHandler';
 import { config } from './config';
 import inviteMailer from './plugins/inviteMailer';
 import cookiePlugin from "./plugins/cookie";
+import multipartPlugin from './plugins/multipart';
 // import { requestUserPlugin } from './plugins/request-user-plugin';
 import authPlugin from './plugins/auth.plugin';
 import { forgotPasswordRoutes } from './routes/forgot-password';
 import { departmentRoutes } from './routes/department.routes';
 import { organizationRoutes } from './routes/organization.routes';
 import { categoryRoutes } from './routes/category.routes';
+import {userManagementRoutes} from './routes/userManagement.routes';
+import { batchRoutes } from './routes/batch.routes';
+import {mcqRoutes} from './routes/mcq.routes';
+import { assessmentRoutes } from './routes/assessment.routes';
 import multipart from '@fastify/multipart';
 import {institutionAdminRoutes} from './routes/institution.admin';
 
@@ -58,6 +63,7 @@ export function buildApp() {
   app.register(cookiePlugin);
   app.register(prismaPlugin);
   app.register(mailerPlugin);
+  app.register(multipartPlugin);
   app.register(jwtPlugin);
   app.register(inviteMailer);
   // app.register(requestUserPlugin);
@@ -102,7 +108,10 @@ export function buildApp() {
   app.register(departmentRoutes);
   app.register(organizationRoutes);
   app.register(categoryRoutes);
-  app.register(institutionAdminRoutes);
+  app.register(userManagementRoutes);
+  app.register(batchRoutes);
+  app.register(mcqRoutes);
+  app.register(assessmentRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {

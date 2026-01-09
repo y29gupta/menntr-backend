@@ -13,12 +13,12 @@ const ROOT_LEVEL = 1;
 
 export async function getCategories(
   prisma: PrismaClient,
-  institutionId: number
+  institution_id: number
 ) {
-  return prisma.role.findMany({
+  return prisma.roles.findMany({
     where: {
-      institutionId,
-      roleHierarchyId: CATEGORY_LEVEL,
+      institution_id:institution_id,
+      role_hierarchy_id: CATEGORY_LEVEL,
       code: { not: null },
     },
     include: {
@@ -26,13 +26,13 @@ export async function getCategories(
         select: {
           children: {
             where: {
-              roleHierarchyId: DEPARTMENT_LEVEL,
+              role_hierarchy_id: DEPARTMENT_LEVEL,
               code: { not: null },
             },
           },
         },
       },
-      users: {
+      user_roles: {
         include: { user: true },
       },
     },
@@ -47,48 +47,48 @@ export async function getCategories(
  */
 export async function getCategoryMeta(
   prisma: PrismaClient,
-  institutionId: number
+  institution_id: number
 ) {
   const [users, departments] = await Promise.all([
-    prisma.user.findMany({
-      where: { institutionId },
+    prisma.users.findMany({
+      where: { institution_id:institution_id, },
       select: {
         id: true,
-        firstName: true,
-        lastName: true,
+        first_name: true,
+        last_name: true,
         email: true,
       },
-      orderBy: { firstName: 'asc' },
+      orderBy: { first_name: 'asc' },
     }),
 
-    prisma.role.findMany({
+    prisma.roles.findMany({
       where: {
-        institutionId,
-        roleHierarchyId: DEPARTMENT_LEVEL,
+        institution_id:institution_id,
+        role_hierarchy_id: DEPARTMENT_LEVEL,
         code: { not: null },        // ✅ real departments only
-        isSystemRole: false,        // ✅ exclude system roles
+        is_system_role: false,        // ✅ exclude system roles
       },
       select: {
         id: true,
         name: true,
-        parentId: true,             // categoryId (nullable)
+        parent_id: true,             // categoryId (nullable)
       },
       orderBy: { name: 'asc' },
     }),
   ]);
 
   return {
-    users: users.map((u) => ({
+    users: users.map((u:any) => ({
       id: u.id.toString(),
-      name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim(),
+      name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
       email: u.email,
     })),
 
-    departments: departments.map((d) => ({
+    departments: departments.map((d:any) => ({
       id: d.id.toString(),
       name: d.name,
-      categoryId: d.parentId ? d.parentId.toString() : null,
-      isAssigned: Boolean(d.parentId), // 🔥 useful for UI
+      categoryId: d.partent_id ? d.partent_id.toString() : null,
+      isAssigned: Boolean(d.partent_id), // 🔥 useful for UI
     })),
   };
 }
@@ -97,7 +97,7 @@ export async function getCategoryMeta(
 
 export async function createCategory(
   prisma: PrismaClient,
-  institutionId: number,
+  institution_id: number,
   input: {
     name: string;
     code: string;
@@ -107,10 +107,10 @@ export async function createCategory(
 ) {
   return prisma.$transaction(async (tx) => {
     // 1️⃣ Root role check
-    const root = await tx.role.findFirst({
+    const root = await tx.roles.findFirst({
       where: {
-        institutionId,
-        roleHierarchyId: ROOT_LEVEL,
+        institution_id:institution_id,
+        role_hierarchy_id: ROOT_LEVEL,
       },
     });
 
@@ -119,10 +119,10 @@ export async function createCategory(
     }
 
     // 2️⃣ Prevent duplicate category code
-    const existing = await tx.role.findFirst({
+    const existing = await tx.roles.findFirst({
       where: {
-        institutionId,
-        roleHierarchyId: CATEGORY_LEVEL,
+        institution_id:institution_id,
+        role_hierarchy_id: CATEGORY_LEVEL,
         code: input.code,
       },
     });
@@ -132,10 +132,10 @@ export async function createCategory(
     }
 
     // 3️⃣ Validate category head user
-    const headUser = await tx.user.findFirst({
+    const headUser = await tx.users.findFirst({
       where: {
         id: BigInt(input.headUserId),
-        institutionId,
+        institution_id:institution_id,
       },
     });
 
@@ -144,31 +144,31 @@ export async function createCategory(
     }
 
     // 4️⃣ Create category
-    const category = await tx.role.create({
+    const category = await tx.roles.create({
       data: {
         name: input.name,
         code: input.code,
-        institutionId,
-        parentId: root.id,
-        roleHierarchyId: CATEGORY_LEVEL,
+        institution_id:institution_id,
+        parent_id: root.id,
+        role_hierarchy_id: CATEGORY_LEVEL,
       },
     });
 
     // 5️⃣ Assign category head
-    await tx.userRole.create({
+    await tx.user_roles.create({
       data: {
-        roleId: category.id,
-        userId: BigInt(input.headUserId),
+        role_id: category.id,
+        user_id: BigInt(input.headUserId),
       },
     });
 
     // 6️⃣ Assign departments (validated)
     if (input.departmentIds.length) {
-      const validDepartments = await tx.role.count({
+      const validDepartments = await tx.roles.count({
         where: {
           id: { in: input.departmentIds },
-          institutionId,
-          roleHierarchyId: DEPARTMENT_LEVEL,
+          institution_id:institution_id,
+          role_hierarchy_id: DEPARTMENT_LEVEL,
         },
       });
 
@@ -178,9 +178,9 @@ export async function createCategory(
         );
       }
 
-      await tx.role.updateMany({
+      await tx.roles.updateMany({
         where: { id: { in: input.departmentIds } },
-        data: { parentId: category.id },
+        data: { parent_id: category.id },
       });
     }
 
@@ -192,7 +192,7 @@ export async function createCategory(
 export async function updateCategory(
   prisma: PrismaClient,
   categoryId: number,
-  institutionId: number,
+  institution_id: number,
   input: {
     name?: string;
     code?: string;
@@ -201,11 +201,11 @@ export async function updateCategory(
   }
 ) {
   return prisma.$transaction(async (tx) => {
-    const category = await tx.role.findFirst({
+    const category = await tx.roles.findFirst({
       where: {
         id: categoryId,
-        institutionId,
-        roleHierarchyId: CATEGORY_LEVEL,
+        institution_id:institution_id,
+        role_hierarchy_id: CATEGORY_LEVEL,
       },
     });
 
@@ -215,10 +215,10 @@ export async function updateCategory(
 
     // Prevent duplicate code
     if (input.code) {
-      const exists = await tx.role.findFirst({
+      const exists = await tx.roles.findFirst({
         where: {
-          institutionId,
-          roleHierarchyId: CATEGORY_LEVEL,
+          institution_id:institution_id,
+          role_hierarchy_id: CATEGORY_LEVEL,
           code: input.code,
           id: { not: categoryId },
         },
@@ -229,7 +229,7 @@ export async function updateCategory(
       }
     }
 
-    const updated = await tx.role.update({
+    const updated = await tx.roles.update({
       where: { id: categoryId },
       data: {
         ...(input.name && { name: input.name }),
@@ -239,10 +239,10 @@ export async function updateCategory(
 
     // Update head
     if (input.headUserId !== undefined) {
-      const headUser = await tx.user.findFirst({
+      const headUser = await tx.users.findFirst({
         where: {
           id: BigInt(input.headUserId),
-          institutionId,
+          institution_id:institution_id,
         },
       });
 
@@ -250,31 +250,31 @@ export async function updateCategory(
         throw new ForbiddenError('Invalid category head user');
       }
 
-      await tx.userRole.deleteMany({ where: { roleId: categoryId } });
-      await tx.userRole.create({
+      await tx.user_roles.deleteMany({ where: { role_id: categoryId } });
+      await tx.user_roles.create({
         data: {
-          roleId: categoryId,
-          userId: BigInt(input.headUserId),
+          role_id: categoryId,
+          user_id: BigInt(input.headUserId),
         },
       });
     }
 
     // Update departments
     if (input.departmentIds) {
-      await tx.role.updateMany({
+      await tx.roles.updateMany({
         where: {
-          parentId: categoryId,
-          roleHierarchyId: DEPARTMENT_LEVEL,
+          parent_id: categoryId,
+          role_hierarchy_id: DEPARTMENT_LEVEL,
         },
-        data: { parentId: null },
+        data: { parent_id: null },
       });
 
       if (input.departmentIds.length) {
-        const valid = await tx.role.count({
+        const valid = await tx.roles.count({
           where: {
             id: { in: input.departmentIds },
-            institutionId,
-            roleHierarchyId: DEPARTMENT_LEVEL,
+            institution_id:institution_id,
+            role_hierarchy_id: DEPARTMENT_LEVEL,
           },
         });
 
@@ -282,9 +282,9 @@ export async function updateCategory(
           throw new ForbiddenError('Invalid departments selected');
         }
 
-        await tx.role.updateMany({
+        await tx.roles.updateMany({
           where: { id: { in: input.departmentIds } },
-          data: { parentId: categoryId },
+          data: { parent_id: categoryId },
         });
       }
     }
@@ -296,22 +296,22 @@ export async function updateCategory(
 export async function getCategoryByIdService(
   prisma: PrismaClient,
   categoryId: number,
-  institutionId: number
+  institution_id: number
 ) {
-  const category = await prisma.role.findFirst({
+  const category = await prisma.roles.findFirst({
     where: {
       id: categoryId,
-      institutionId,
-      roleHierarchyId: CATEGORY_LEVEL,
+      institution_id:institution_id,
+      role_hierarchy_id: CATEGORY_LEVEL,
       code: { not: null },
     },
     include: {
-      users: {
+      user_roles: {
         include: { user: true }, // category head
       },
       children: {
         where: {
-          roleHierarchyId: DEPARTMENT_LEVEL,
+          role_hierarchy_id: DEPARTMENT_LEVEL,
           code: { not: null },
         },
         orderBy: { name: 'asc' },
@@ -324,4 +324,47 @@ export async function getCategoryByIdService(
   }
 
   return category;
+}
+
+export async function deleteCategory(
+  prisma: PrismaClient,
+  categoryId: number,
+  institution_id: number
+) {
+  return prisma.$transaction(async (tx) => {
+    // 1️⃣ Ensure category exists
+    const category = await tx.roles.findFirst({
+      where: {
+        id: categoryId,
+        institution_id,
+        role_hierarchy_id: CATEGORY_LEVEL,
+        is_system_role: false,
+      },
+    });
+
+    if (!category) {
+      throw new NotFoundError('Category not found');
+    }
+
+    // 2️⃣ Detach all departments under this category
+    await tx.roles.updateMany({
+      where: {
+        parent_id: categoryId,
+        role_hierarchy_id: DEPARTMENT_LEVEL,
+      },
+      data: { parent_id: null },
+    });
+
+    // 3️⃣ Remove category head assignment
+    await tx.user_roles.deleteMany({
+      where: { role_id: categoryId },
+    });
+
+    // 4️⃣ Delete the category
+    await tx.roles.delete({
+      where: { id: categoryId },
+    });
+
+    return { success: true };
+  });
 }
