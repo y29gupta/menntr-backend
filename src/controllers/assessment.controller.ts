@@ -33,7 +33,6 @@ interface CreateAssessmentBody {
   question_type: 'MCQ' | 'Coding';
 }
 
-
 interface AssignAudienceBody {
   batch_ids: number[];
 }
@@ -89,21 +88,20 @@ export async function createAssessmentHandler(
 ) {
   const user = req.user as any;
 
-const assessment = await service.createAssessment(req.prisma, {
-  institution_id: user.institution_id,
-  created_by: BigInt(user.sub),
-  feature_id: req.body.feature_id,
-  title: req.body.title,
-  description: req.body.description,
-  duration_minutes: req.body.duration_minutes,
-  tags: req.body.tags,
+  const assessment = await service.createAssessment(req.prisma, {
+    institution_id: user.institution_id,
+    created_by: BigInt(user.sub),
+    feature_id: req.body.feature_id,
+    title: req.body.title,
+    description: req.body.description,
+    duration_minutes: req.body.duration_minutes,
+    tags: req.body.tags,
 
-  // 🔥 PASS META
-  category: req.body.category,
-  assessment_type: req.body.assessment_type,
-  question_type: req.body.question_type,
-});
-
+    // 🔥 PASS META
+    category: req.body.category,
+    assessment_type: req.body.assessment_type,
+    question_type: req.body.question_type,
+  });
 
   reply.send(assessment);
 }
@@ -130,11 +128,7 @@ export async function addQuestionHandler(
   req: FastifyRequest<{ Params: { id: string }; Body: AddQuestionBody }>,
   reply: FastifyReply
 ) {
-  const result = await service.addQuestion(
-    req.prisma,
-    BigInt(req.params.id),
-    req.body
-  );
+  const result = await service.addQuestion(req.prisma, BigInt(req.params.id), req.body);
 
   reply.send(result);
 }
@@ -158,10 +152,7 @@ export async function assessmentSummaryHandler(
   req: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const summary = await service.getAssessmentSummary(
-    req.prisma,
-    BigInt(req.params.id)
-  );
+  const summary = await service.getAssessmentSummary(req.prisma, BigInt(req.params.id));
 
   reply.send(summary);
 }
@@ -177,33 +168,35 @@ export async function scheduleAssessmentHandler(
   }>,
   reply: FastifyReply
 ) {
-  await service.scheduleAssessment(
-    req.prisma,
-    BigInt(req.params.id),
-    req.body
-  );
+  await service.scheduleAssessment(req.prisma, BigInt(req.params.id), req.body);
 
   reply.send({ success: true });
 }
-
 
 // STEP 6 – Publish
 export async function publishAssessmentHandler(
   req: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const assessment = await service.publishAssessment(
-    req.prisma,
-    BigInt(req.params.id)
-  );
+  const assessment = await service.publishAssessment(req.prisma, BigInt(req.params.id));
 
   reply.send(assessment);
 }
 
 // LIST & GET
-export async function listAssessmentsHandler(req: FastifyRequest, reply: FastifyReply) {
+export async function listAssessmentsHandler(
+  req: FastifyRequest<{ Querystring: { tab?: string } }>,
+  reply: FastifyReply
+) {
   const user = req.user as any;
-  const list = await service.listAssessments(req.prisma, user.institution_id);
+  const tab = req.query.tab;
+
+  if (tab !== 'active' && tab !== 'draft' && tab !== 'closed') {
+    return reply.send({
+      message: 'Invalid tab value',
+    });
+  }
+  const list = await service.listAssessments(req.prisma, user.institution_id, tab);
   reply.send(list);
 }
 
@@ -214,8 +207,6 @@ export async function getAssessmentHandler(
   const assessment = await service.getAssessment(req.prisma, BigInt(req.params.id));
   reply.send(assessment);
 }
-
-
 
 export async function createMCQQuestionHandler(
   req: FastifyRequest<{ Params: { id: string }; Body: CreateMCQBody }>,
@@ -234,18 +225,10 @@ export async function createMCQQuestionHandler(
   reply.send(result);
 }
 
-
-
-export async function assessmentAudienceMetaHandler(
-  req: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function assessmentAudienceMetaHandler(req: FastifyRequest, reply: FastifyReply) {
   const user = req.user as any;
 
-  const data = await service.getAssessmentAudienceMeta(
-    req.prisma,
-    user.institution_id
-  );
+  const data = await service.getAssessmentAudienceMeta(req.prisma, user.institution_id);
 
   reply.send(data);
 }
@@ -254,22 +237,15 @@ export async function listAssessmentQuestionsHandler(
   req: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const data = await service.listAssessmentQuestions(
-    req.prisma,
-    BigInt(req.params.id)
-  );
+  const data = await service.listAssessmentQuestions(req.prisma, BigInt(req.params.id));
   reply.send(data);
 }
 
-
 export async function getAssessmentAudienceHandler(
-  req: FastifyRequest<{Params: {id:string}}>,
+  req: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
-){
-  const data = await service.getAssessmentAudience(
-    req.prisma,
-    BigInt(req.params.id)
-  );
+) {
+  const data = await service.getAssessmentAudience(req.prisma, BigInt(req.params.id));
   reply.send(data);
 }
 
@@ -286,24 +262,16 @@ export async function updateAssessmentAccessHandler(
   }>,
   reply: FastifyReply
 ) {
-  await service.updateAssessmentAccess(
-    req.prisma,
-    BigInt(req.params.id),
-    req.body
-  );
+  await service.updateAssessmentAccess(req.prisma, BigInt(req.params.id), req.body);
 
   reply.send({ success: true });
 }
-
 
 export async function getAssessmentAccessHandler(
   req: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const data = await service.getAssessmentAccess(
-    req.prisma,
-    BigInt(req.params.id)
-  );
+  const data = await service.getAssessmentAccess(req.prisma, BigInt(req.params.id));
 
   reply.send(data);
 }

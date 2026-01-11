@@ -1,4 +1,6 @@
 import { PrismaClient, AssessmentStatus, QuestionDifficulty, QuestionType } from '@prisma/client';
+import { timeAgo } from '../utils/time';
+import { capitalize, formatQuestionType } from '../utils/assessments/formatQuestionType';
 
 /* -------------------------------
    CREATE
@@ -230,11 +232,25 @@ export async function publishAssessment(
 
 export async function listAssessments(
   prisma: PrismaClient,
-  institutionId: number
+  institutionId: number,
+  tab: 'active' | 'draft' | 'closed'
 ) {
+  let statusFilter: any = {};
+
+  if(tab === 'active') {
+    statusFilter = {status: {in:['published', 'active']}};
+  }
+  if(tab === 'draft') {
+    statusFilter = {status: 'draft'};
+  }
+  if(tab === 'closed') {
+    statusFilter = {status: {in: ['closed', 'archived']}};
+  }
   const assessments = await prisma.assessments.findMany({
     where: {
       institution_id: institutionId,
+      // is_deleted: false,
+      ...statusFilter,
     },
     include: {
       questions: true, // for count
@@ -274,14 +290,15 @@ export async function listAssessments(
         ? a.end_time.toISOString().split('T')[0]
         : '-',
 
-      lastEdited: a.updated_at
-        ? `${Math.max(
-            1,
-            Math.floor(
-              (Date.now() - a.updated_at.getTime()) / (1000 * 60 * 60 * 24)
-            )
-          )} days ago`
-        : '-',
+      // lastEdited: a.updated_at
+      //   ? `${Math.max(
+      //       1,
+      //       Math.floor(
+      //         (Date.now() - a.updated_at.getTime()) / (1000 * 60 * 60 * 24)
+      //       )
+      //     )} days ago`
+      //   : '-',
+      lastEdited: a.updated_at ? timeAgo(a.updated_at) : '-',
 
       status: a.status,
     };
@@ -456,22 +473,7 @@ export async function listAssessmentQuestions(
   }));
 }
 
-function formatQuestionType(type: string) {
-  switch (type) {
-    case 'single_correct':
-      return 'MCQ - Single correct answer';
-    case 'multiple_correct':
-      return 'MCQ - Multiple correct answers';
-    case 'true_false':
-      return 'True / False';
-    default:
-      return type;
-  }
-}
 
-function capitalize(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
 
 
 export async function getAssessmentAudience(
@@ -553,4 +555,8 @@ export async function getAssessmentAccess(
     showScoreImmediately: assessment.show_results_immediate,
   };
 }
+
+
+
+
 
