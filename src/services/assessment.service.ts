@@ -236,6 +236,7 @@ export async function listAssessments(
   tab: 'active' | 'draft' | 'closed'
 ) {
   let statusFilter: any = {};
+  
 
   if(tab === 'active') {
     statusFilter = {status: {in:['published', 'active']}};
@@ -556,7 +557,34 @@ export async function getAssessmentAccess(
   };
 }
 
+export async function deleteAssessment(
+  prisma: PrismaClient,
+  assessmentId: bigint,
+  institutionId: number
+) {
+  const assessment = await prisma.assessments.findUnique({
+    where: { id: assessmentId },
+    include: {
+      questions: true,
+      batches: true,
+      attempts: true,
+    },
+  });
+  console.log("harish logs", assessment?.institution_id, institutionId)
+  if (!assessment) throw new Error('Assessment not found');
 
+  if (assessment.institution_id !== institutionId) throw new Error('Forbidden');
 
+  if (assessment.status !== 'draft') throw new Error('Only draft assessments can be deleted');
 
+  if (assessment.questions.length > 0) throw new Error('Cannot delete assessment with questions');
 
+  if (assessment.batches.length > 0) throw new Error('Cannot delete assessment with audience');
+
+  if (assessment.attempts.length > 0) throw new Error('Cannot delete assessment with attempts');
+
+  await prisma.assessments.update({
+    where: { id: assessmentId },
+    data: { is_deleted: true },
+  });
+}

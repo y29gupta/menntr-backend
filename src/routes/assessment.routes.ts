@@ -17,9 +17,12 @@ import {
   getAssessmentAudienceHandler,
   getAssessmentAccessHandler,
   updateAssessmentAccessHandler,
+  deleteAssessmentHandler,
 } from '../controllers/assessment.controller';
 
 export async function assessmentRoutes(app: any) {
+  app.delete('/assessments/:id', { prehandler: [authGuard] }, deleteAssessmentHandler);
+
   // META
   app.get('/assessments/meta', { preHandler: [authGuard] }, assessmentMetaHandler);
   app.get('/questions/meta', { preHandler: [authGuard] }, questionMetaHandler);

@@ -471,6 +471,8 @@ model assessments {
   batches   assessment_batches[]
   attempts  assessment_attempts[]
   students  assessment_students[]
+
+  is_deleted Boolean @default(false)
 }
 
 model assessment_questions {

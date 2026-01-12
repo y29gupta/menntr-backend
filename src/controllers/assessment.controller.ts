@@ -190,7 +190,7 @@ export async function listAssessmentsHandler(
 ) {
   const user = req.user as any;
   const tab = req.query.tab;
-
+  console.log("list assessment", user)
   if (tab !== 'active' && tab !== 'draft' && tab !== 'closed') {
     return reply.send({
       message: 'Invalid tab value',
@@ -227,7 +227,7 @@ export async function createMCQQuestionHandler(
 
 export async function assessmentAudienceMetaHandler(req: FastifyRequest, reply: FastifyReply) {
   const user = req.user as any;
-
+  console.log("assessment audience", user)
   const data = await service.getAssessmentAudienceMeta(req.prisma, user.institution_id);
 
   reply.send(data);
@@ -275,3 +275,15 @@ export async function getAssessmentAccessHandler(
 
   reply.send(data);
 }
+
+export async function deleteAssessmentHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+  console.log("user data", user)
+  await service.deleteAssessment(req.prisma, BigInt(req.params.id), user.institution_id);
+
+  reply.send({ success: true });
+}
+

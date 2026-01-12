@@ -6,4 +6,5 @@ export interface AuthJwtPayload {
   exp?: number;
   aud?: string;
   iss?: string;
+  institution_id: number;
 }

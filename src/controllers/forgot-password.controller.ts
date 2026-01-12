@@ -43,7 +43,7 @@ export async function validateForgotPasswordEmail(request: FastifyRequest, reply
   const { email } = parsed.data;
   const prisma = request.prisma;
 
-  const user = await prisma.user.findFirst({
+  const user = await prisma.users.findFirst({
     where: { email, status: 'active' },
     select: { id: true },
   });
@@ -70,7 +70,7 @@ export async function sendForgotPasswordEmail(request: FastifyRequest, reply: Fa
   const { email } = parsed.data;
   const prisma = request.prisma;
 
-  const user = await prisma.user.findFirst({
+  const user = await prisma.users.findFirst({
     where: { email, status: 'active' },
   });
 
@@ -88,12 +88,12 @@ export async function sendForgotPasswordEmail(request: FastifyRequest, reply: Fa
   const { token, hash } = AuthService.generateToken();
   const expiresAt = new Date(Date.now() + config.auth.resetTokenExpiryMinutes * 60 * 1000);
 
-  await prisma.authToken.create({
+  await prisma.auth_tokens.create({
     data: {
-      userId: user.id,
-      tokenHash: hash,
+      user_id: user.id,
+      token_hash: hash,
       type: 'email_verification',
-      expiresAt: expiresAt,
+      expires_at: expiresAt,
     },
   });
 
@@ -130,12 +130,12 @@ export async function verifyResetToken(request: FastifyRequest, reply: FastifyRe
 
   const tokenHash = AuthService.sha256(token);
 
-  const record = await prisma.authToken.findFirst({
+  const record = await prisma.auth_tokens.findFirst({
     where: {
-      tokenHash: tokenHash,
+      token_hash: tokenHash,
       type: 'password_reset',
-      usedAt: null,
-      expiresAt: { gt: new Date() },
+      used_at: null,
+      expires_at: { gt: new Date() },
       user: { email },
     },
   });
@@ -163,18 +163,18 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
 
   const tokenHash = AuthService.sha256(token);
 
-  const record = await prisma.authToken.findFirst({
+  const record = await prisma.auth_tokens.findFirst({
     where: {
-      tokenHash,
+      token_hash:tokenHash,
       type: 'password_reset',
-      usedAt: null,
-      expiresAt: { gt: new Date() },
+      used_at: null,
+      expires_at: { gt: new Date() },
       user: { email },
     },
     include: {
       user: {
         include: {
-          roles: { include: { role: true } },
+          user_roles: { include: { role: true } },
         },
       },
     },
@@ -189,19 +189,19 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
 
   await prisma.$transaction([
     prisma.user.update({
-      where: { id: record.userId },
+      where: { id: record.user_id },
       data: {
-        passwordHash,
-        mustChangePassword: false,
+        password_hash:passwordHash,
+        must_change_password: false,
         status: 'active',
       },
     }),
-    prisma.authToken.updateMany({
+    prisma.auth_tokens.updateMany({
       where: {
-        userId: record.userId,
+        user_id: record.userId,
         type: 'password_reset',
       },
-      data: { usedAt: new Date() },
+      data: { used_at: new Date() },
     }),
   ]);
 
@@ -233,7 +233,7 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
   return reply.send({
     success: true,
     roles,
-    mustChangePassword: false,
+    must_change_password: false,
   });
 }
 
