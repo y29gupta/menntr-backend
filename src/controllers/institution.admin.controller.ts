@@ -343,29 +343,51 @@ export async function getModuleFeaturesHandler(request: FastifyRequest, reply: F
     const institution = await prisma.institutions.findUnique({
       where: { id: Number(currentUser.institution_id) },
       select: {
-        plan: { select: { code: true } },
+        plan: {
+          select: {
+            code: true,
+          },
+        },
       },
     });
 
     const planCode = institution?.plan?.code;
 
+    if (!planCode) {
+      return reply.send({ data: [] });
+    }
+
     const planFeatures = await prisma.plan_features.findMany({
-      where: { planCode, included: true },
-      select: { feature_code: true },
+      where: {
+        plan_code: planCode,
+        included: true,
+      },
+      select: {
+        feature_code: true,
+      },
     });
 
     const allowedFeatureCodes = planFeatures.map((p: any) => p.feature_code);
 
+    if (!allowedFeatureCodes.length) {
+      return reply.send({ data: [] });
+    }
+
     const features = await prisma.features.findMany({
       where: {
         module_id: Number(moduleId),
-        code: { in: allowedFeatureCodes },
+        code: {
+          in: allowedFeatureCodes,
+        },
       },
       select: {
         id: true,
         code: true,
         name: true,
         description: true,
+      },
+      orderBy: {
+        sort_order: 'asc',
       },
     });
 
@@ -380,7 +402,7 @@ export async function getFeaturePermissionsHandler(request: FastifyRequest, repl
   try {
     const prisma = request.server.prisma;
     const { featureCode } = request.params as any;
-    console.log('feature_code', featureCode);
+
     const permissions = await prisma.permissions.findMany({
       where: { feature_code: featureCode },
       select: {
@@ -654,25 +676,25 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
 export async function listUsers(req: FastifyRequest, reply: FastifyReply) {
   const prisma = req.prisma;
 
-  // 🔐 Current user
   const user_id = BigInt((req as any).user.sub);
 
-  const authUser = await prisma.user.findUnique({
+  const authUser = await prisma.users.findUnique({
     where: { id: user_id },
-    select: { institutionId: true },
+    select: { institution_id: true },
   });
 
-  if (!authUser?.institutionId) {
+  if (!authUser?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
-  // 🔎 Query params
   const { page = 1, limit = 10, search = '', status } = req.query as any;
 
-  // 🔹 Build where clause
   const where: any = {
-    institutionId: authUser.institutionId,
-    email: { contains: search, mode: 'insensitive' },
+    institution_id: authUser.institution_id,
+    email: {
+      contains: search,
+      mode: 'insensitive',
+    },
   };
 
   if (status) {
@@ -681,10 +703,10 @@ export async function listUsers(req: FastifyRequest, reply: FastifyReply) {
 
   // 🔹 Fetch users + count
   const [rows, total] = await Promise.all([
-    prisma.user.findMany({
+    prisma.users.findMany({
       where,
       include: {
-        roles: {
+        user_roles: {
           include: {
             role: {
               include: {
@@ -694,29 +716,29 @@ export async function listUsers(req: FastifyRequest, reply: FastifyReply) {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { created_at: 'desc' },
       skip: (Number(page) - 1) * Number(limit),
       take: Number(limit),
     }),
 
-    prisma.user.count({ where }),
+    prisma.users.count({ where }),
   ]);
 
-  // 🔹 Transform result
   const data = rows.map((u: any) => {
-    const roleEntry = u.roles.find((ur: any) => !ur.role.isSystemRole);
+    const roleEntry = u.user_roles.find((ur: any) => !ur.role.is_system_role);
+
     const role = roleEntry?.role ?? null;
 
-    const department = role?.roleHierarchyId === 3 ? role.name : null;
+    const department = role?.role_hierarchy_id === 3 ? role.name : null;
 
     return {
       id: u.id.toString(),
-      name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim(),
+      name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
       email: u.email,
       role: role?.name ?? null,
       department,
       status: u.status,
-      lastLoginAt: u.lastLoginAt,
+      lastLoginAt: u.last_login_at,
     };
   });
 
