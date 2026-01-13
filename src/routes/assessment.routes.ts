@@ -61,5 +61,5 @@ app.get('/assessments/:id/audience',{preHandler: [authGuard]}, getAssessmentAudi
 app.put('/assessments/:id/access', {preHandler: [authGuard]}, updateAssessmentAccessHandler);
 app.get('/assessments/:id/access', {preHandler: [authGuard]}, getAssessmentAccessHandler);
 
-app.get('/assessments/:id/mcq/bulk-upload', { preHandler: [authGuard] }, bulkUploadMcqHandler);
+app.post('/assessments/:id/mcq/bulk-upload', { preHandler: [authGuard] }, bulkUploadMcqHandler);
 }
