@@ -18,9 +18,9 @@ import {
   getAssessmentAccessHandler,
   updateAssessmentAccessHandler,
   deleteAssessmentHandler,
+  bulkCreateMcqForAssessmentHandler,
+  bulkUploadMcqHandler,
 } from '../controllers/assessment.controller';
-import { bulkCreateMcqForAssessmentHandler, bulkUploadMcqHandler } from '../controllers/mcq.controller';
-
 
 export async function assessmentRoutes(app: any) {
   app.delete('/assessments/:id', { prehandler: [authGuard] }, deleteAssessmentHandler);
