@@ -33,20 +33,20 @@ export async function bulkCreateMcqForAssessmentHandler(
   reply: FastifyReply
 ) {
   const user = req.user as any;
-  const file = (req as any).file; // from fastify-multipart
-
+  // const data = await req.file(); // from fastify-multipart
+  const file = await (req as any).file();
   if (!file) {
     throw new Error('File is required');
   }
 
-  const buffer = await file.toBuffer();
+  // const buffer = await data.file.toBuffer();
 
   const result = await bulkCreateMcqForAssessment(req.prisma, {
     assessment_id: BigInt(req.params.id),
     institution_id: user.institution_id,
     created_by: BigInt(user.sub),
     fileName: file.filename,
-    buffer,
+    buffer: await file.toBuffer(),
   });
 
   reply.send(result);
