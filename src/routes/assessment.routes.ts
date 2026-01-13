@@ -19,7 +19,7 @@ import {
   updateAssessmentAccessHandler,
   deleteAssessmentHandler,
 } from '../controllers/assessment.controller';
-import { bulkUploadMcqHandler } from '../controllers/mcq.controller';
+import { bulkCreateMcqForAssessmentHandler, bulkUploadMcqHandler } from '../controllers/mcq.controller';
 
 
 export async function assessmentRoutes(app: any) {
@@ -62,4 +62,11 @@ app.put('/assessments/:id/access', {preHandler: [authGuard]}, updateAssessmentAc
 app.get('/assessments/:id/access', {preHandler: [authGuard]}, getAssessmentAccessHandler);
 
 app.post('/assessments/:id/mcq/bulk-upload', { preHandler: [authGuard] }, bulkUploadMcqHandler);
+
+// upload bulk mcq questions assessment
+app.post(
+  '/assessments/:id/mcq/bulk-create',
+  { preHandler: [authGuard] },
+  bulkCreateMcqForAssessmentHandler
+);
 }

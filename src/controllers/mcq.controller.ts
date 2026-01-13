@@ -1,5 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { bulkUploadMcqs } from '../services/mcq.service';
+import { bulkCreateMcqForAssessment, bulkUploadMcqs } from '../services/mcq.service';
 
 export async function bulkUploadMcqHandler(
   req: FastifyRequest,
@@ -26,4 +26,28 @@ export async function bulkUploadMcqHandler(
   );
 
   return reply.send(result);
+}
+
+export async function bulkCreateMcqForAssessmentHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+  const file = (req as any).file; // from fastify-multipart
+
+  if (!file) {
+    throw new Error('File is required');
+  }
+
+  const buffer = await file.toBuffer();
+
+  const result = await bulkCreateMcqForAssessment(req.prisma, {
+    assessment_id: BigInt(req.params.id),
+    institution_id: user.institution_id,
+    created_by: BigInt(user.sub),
+    fileName: file.filename,
+    buffer,
+  });
+
+  reply.send(result);
 }
