@@ -20,7 +20,7 @@ import { organizationRoutes } from './routes/organization.routes';
 import { categoryRoutes } from './routes/category.routes';
 import {userManagementRoutes} from './routes/userManagement.routes';
 import { batchRoutes } from './routes/batch.routes';
-import {mcqRoutes} from './routes/mcq.routes';
+// import {mcqRoutes} from './routes/mcq.routes';
 import { assessmentRoutes } from './routes/assessment.routes';
 // import multipart from '@fastify/multipart';
 import {institutionAdminRoutes} from './routes/institution.admin';
@@ -110,7 +110,7 @@ export function buildApp() {
   app.register(categoryRoutes);
   app.register(userManagementRoutes);
   app.register(batchRoutes);
-  app.register(mcqRoutes);
+  // app.register(mcqRoutes);
   app.register(assessmentRoutes);
   app.register(institutionAdminRoutes);
   // Health check endpoint
