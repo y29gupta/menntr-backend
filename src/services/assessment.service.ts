@@ -779,7 +779,8 @@ export async function createCodingQuestion(
       institution_id: institutionId,
       created_by: createdBy,
       question_text: body.problem_title, // used in list UI
-      question_type: 'coding' as QuestionType,
+      // question_type: 'coding' as QuestionType,
+      question_type: 'single_correct',
       difficulty_level: body.difficulty_level,
       default_points: body.points,
       time_limit_seconds: body.time_limit_minutes * 60,
