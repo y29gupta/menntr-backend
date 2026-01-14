@@ -20,6 +20,8 @@ import {
   deleteAssessmentHandler,
   bulkCreateMcqForAssessmentHandler,
   bulkUploadMcqHandler,
+  codingQuestionMetaHandler,
+  createCodingQuestionHandler,
 } from '../controllers/assessment.controller';
 
 export async function assessmentRoutes(app: any) {
@@ -69,4 +71,9 @@ app.post(
   { preHandler: [authGuard] },
   bulkCreateMcqForAssessmentHandler
 );
+
+// coding endpoints
+app.get('/questions/coding/meta', {prehandler: [authGuard]}, codingQuestionMetaHandler)
+
+app.post('/assessments/:id/questions/coding', {prehandler: [authGuard]}, createCodingQuestionHandler)
 }

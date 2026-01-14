@@ -752,3 +752,66 @@ export async function bulkCreateMcqForAssessment(
     skipped_rows: skipped,
   };
 }
+
+export async function createCodingQuestion(
+  prisma: PrismaClient,
+  assessmentId: bigint,
+  institutionId: number,
+  createdBy: bigint,
+  body: {
+    topic: string;
+    problem_title: string;
+    problem_statement: string;
+    constraints: string;
+    input_format: string;
+    output_format: string;
+    sample_test_cases: { input: string; output: string }[];
+    supported_languages: string[];
+    difficulty_level: QuestionDifficulty;
+    points: number;
+    time_limit_minutes: number;
+    is_mandatory?: boolean;
+  }
+) {
+  // 1️⃣ Create question in question_bank
+  const question = await prisma.question_bank.create({
+    data: {
+      institution_id: institutionId,
+      created_by: createdBy,
+      question_text: body.problem_title, // used in list UI
+      question_type: 'coding' as QuestionType,
+      difficulty_level: body.difficulty_level,
+      default_points: body.points,
+      time_limit_seconds: body.time_limit_minutes * 60,
+
+      tags: [body.topic],
+
+      metadata: {
+        problem_title: body.problem_title,
+        problem_statement: body.problem_statement,
+        constraints: body.constraints,
+        input_format: body.input_format,
+        output_format: body.output_format,
+        sample_test_cases: body.sample_test_cases,
+        supported_languages: body.supported_languages,
+        time_limit_minutes: body.time_limit_minutes,
+      },
+    },
+  });
+
+  // 2️⃣ Attach to assessment
+  await prisma.assessment_questions.create({
+    data: {
+      assessment_id: assessmentId,
+      question_id: question.id,
+      points: body.points,
+      is_mandatory: body.is_mandatory ?? true,
+    },
+  });
+
+  return {
+    success: true,
+    question_id: question.id.toString(),
+  };
+}
+

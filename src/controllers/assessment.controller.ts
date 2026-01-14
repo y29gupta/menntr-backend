@@ -5,6 +5,23 @@ import { PrismaClient, QuestionDifficulty } from '@prisma/client';
 /* --------------------------------
    TYPES
 --------------------------------- */
+interface CreateCodingQuestionBody {
+  topic: string;
+  problem_title: string;
+  problem_statement: string;
+  constraints: string;
+  input_format: string;
+  output_format: string;
+  sample_test_cases: {
+    input: string;
+    output: string;
+  }[];
+  supported_languages: string[];
+  difficulty_level: 'easy' | 'medium' | 'hard';
+  points: number;
+  time_limit_minutes: number;
+  is_mandatory?: boolean;
+}
 
 interface CreateMCQBody {
   topic: string; // UI selected topic
@@ -332,6 +349,36 @@ export async function bulkCreateMcqForAssessmentHandler(
     fileName: file.filename,
     buffer: await file.toBuffer(),
   });
+
+  reply.send(result);
+}
+
+
+export async function codingQuestionMetaHandler (
+  _: FastifyRequest,
+  reply: FastifyReply
+){
+  reply.send({
+    topics: ['Arrays', 'Strings', 'Math', 'Dynamic Programming'],
+    difficulties: ['easy', 'medium', 'hard'],
+    timeLimits: [1, 3, 5, 10], // minutes
+    languages: ['Java', 'Python', 'C++', 'JavaScript'],
+  });
+}
+
+export async function createCodingQuestionHandler(
+  req: FastifyRequest<{ Params: { id: string }; Body: CreateCodingQuestionBody }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const result = await service.createCodingQuestion(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id,
+    BigInt(user.sub),
+    req.body
+  );
 
   reply.send(result);
 }
