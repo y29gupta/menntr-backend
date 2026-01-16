@@ -17,7 +17,7 @@ export async function createAssessment(
   prisma: PrismaClient,
   data: {
     institution_id: number;
-    feature_id: number;
+    feature_id: number; // ✅ internal only
     title: string;
     description?: string;
     duration_minutes: number;
@@ -43,12 +43,19 @@ export async function createAssessment(
         question_type: data.question_type,
       },
 
-      institution: { connect: { id: data.institution_id } },
-      feature: { connect: { id: data.feature_id } },
-      creator: { connect: { id: data.created_by } },
+      institution: {
+        connect: { id: data.institution_id },
+      },
+      feature: {
+        connect: { id: data.feature_id }, // 🔐 safe
+      },
+      creator: {
+        connect: { id: data.created_by },
+      },
     },
   });
 }
+
 
 /* -------------------------------
    AUDIENCE
@@ -131,15 +138,11 @@ export async function getAssessmentSummary(prisma: PrismaClient, assessmentId: b
     },
   });
 
-  if (!assessment) {
-    throw new Error('Assessment not found');
-  }
+  if (!assessment) throw new Error('Assessment not found');
 
   const questions = assessment.questions;
 
-  const totalQuestions = questions.length;
-
-  const totalMarks = questions.reduce((sum, q) => sum + q.points, 0);
+  let totalMarks = 0;
 
   const difficultyMix: Record<QuestionDifficulty, number> = {
     easy: 0,
@@ -148,20 +151,49 @@ export async function getAssessmentSummary(prisma: PrismaClient, assessmentId: b
     expert: 0,
   };
 
-  questions.forEach((q) => {
-    difficultyMix[q.question.difficulty_level]++;
-  });
+  let mcqCount = 0;
+  let codingCount = 0;
 
-  const mandatoryCount = questions.filter((q) => q.is_mandatory).length;
-  const metadata = assessment.metadata as AssessmentMetaData | null;
+  const supportedLanguages = new Set<string>();
+  let codingTestCasesConfigured = true;
+
+  let mandatoryCount = 0;
+
+  for (const aq of questions) {
+    const q = aq.question;
+    totalMarks += aq.points;
+
+    difficultyMix[q.difficulty_level]++;
+    if (aq.is_mandatory) mandatoryCount++;
+
+    const metadata = q.metadata as any;
+
+    const isCoding = Boolean(metadata?.problem_statement);
+
+    if (isCoding) {
+      codingCount++;
+
+      // Supported languages
+      (metadata.supported_languages || []).forEach((l: string) => supportedLanguages.add(l));
+
+      // Test case validation
+      if (!metadata.sample_test_cases || metadata.sample_test_cases.length === 0) {
+        codingTestCasesConfigured = false;
+      }
+    } else {
+      mcqCount++;
+    }
+  }
+
+  const meta = assessment.metadata as AssessmentMetaData | null;
+
   return {
     assessmentName: assessment.title,
-    category: metadata?.category ?? null,
-    assessmentType: metadata?.assessment_type ?? null,
-    questionType: metadata?.question_type ?? null,
+    category: meta?.category ?? null,
 
-    totalQuestions,
+    totalProblems: questions.length,
     totalMarks,
+    durationMinutes: assessment.duration_minutes,
 
     difficultyMix: {
       easy: difficultyMix.easy,
@@ -169,9 +201,19 @@ export async function getAssessmentSummary(prisma: PrismaClient, assessmentId: b
       hard: difficultyMix.hard,
     },
 
-    mandatory: mandatoryCount === totalQuestions,
+    questionBreakdown: {
+      mcq: mcqCount,
+      coding: codingCount,
+    },
+
+    supportedLanguages: Array.from(supportedLanguages),
+
+    mandatory: mandatoryCount === questions.length,
+
+    testCaseStatus: codingCount === 0 ? null : codingTestCasesConfigured ? 'Configured' : 'Missing',
   };
 }
+
 
 /* -------------------------------
    SCHEDULE & PUBLISH
@@ -367,7 +409,7 @@ export async function getAssessmentAudienceMeta(prisma: PrismaClient, institutio
       name: 'asc',
     },
   });
-
+  console.log("batches...", batches)
   /**
    * Build structure:
    * Category → Department → Batches

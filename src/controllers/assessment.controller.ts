@@ -1,10 +1,26 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import * as service from '../services/assessment.service';
 import { PrismaClient, QuestionDifficulty } from '@prisma/client';
+import { ForbiddenError, ValidationError } from '../utils/errors';
+import { CreateAssessmentSchema } from '../schemas/assessment.schema';
 
 /* --------------------------------
    TYPES
 --------------------------------- */
+
+type IdParams = {
+  id: string;
+};
+
+type TabQuery = {
+  tab?: 'active' | 'draft' | 'closed';
+};
+
+function requirePermission(user: any, permission: string) {
+  if (!user?.permissions?.includes(permission)) {
+    throw new ForbiddenError('Insufficient permissions');
+  }
+}
 interface CreateCodingQuestionBody {
   topic: string;
   problem_title: string;
@@ -71,7 +87,17 @@ interface ScheduleBody {
   start_time: string;
   end_time: string;
 }
+const QUESTION_TYPE_TO_PERMISSION = {
+  mcq: 'mcq:create',
+  coding: 'coding:create',
+  manual: 'manual:create',
+} as const;
 
+const QUESTION_TYPE_TO_FEATURE_CODE = {
+  mcq: 'assessment:mcq',
+  coding: 'assessment:coding',
+  manual: 'assessment:manual',
+} as const;
 /* --------------------------------
    META APIs
 --------------------------------- */
@@ -99,25 +125,48 @@ export async function questionMetaHandler(_: FastifyRequest, reply: FastifyReply
 --------------------------------- */
 
 // STEP 1 – Create Assessment
-export async function createAssessmentHandler(
-  req: FastifyRequest<{ Body: CreateAssessmentBody }>,
-  reply: FastifyReply
-) {
+export async function createAssessmentHandler(req: FastifyRequest, reply: FastifyReply) {
   const user = req.user as any;
 
+  // 1️⃣ Validate body
+  const parsed = CreateAssessmentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new ValidationError('Invalid request', parsed.error.issues);
+  }
+
+  const { question_type } = parsed.data;
+
+  // 2️⃣ Resolve permission
+  const requiredPermission = QUESTION_TYPE_TO_PERMISSION[question_type];
+  if (!requiredPermission) {
+    throw new ValidationError('Unsupported question type');
+  }
+
+  // 3️⃣ Permission check
+  requirePermission(user, requiredPermission);
+
+  // 4️⃣ Resolve feature code
+  const featureCode = QUESTION_TYPE_TO_FEATURE_CODE[question_type];
+  if (!featureCode) {
+    throw new ValidationError('Assessment feature not supported');
+  }
+
+  // 5️⃣ Fetch feature (single source of truth)
+  const feature = await req.prisma.features.findUnique({
+    where: { code: featureCode },
+    select: { id: true },
+  });
+
+  if (!feature) {
+    throw new ValidationError('Assessment feature not configured');
+  }
+
+  // 6️⃣ Create assessment
   const assessment = await service.createAssessment(req.prisma, {
+    ...parsed.data,
     institution_id: user.institution_id,
     created_by: BigInt(user.sub),
-    feature_id: req.body.feature_id,
-    title: req.body.title,
-    description: req.body.description,
-    duration_minutes: req.body.duration_minutes,
-    tags: req.body.tags,
-
-    // 🔥 PASS META
-    category: req.body.category,
-    assessment_type: req.body.assessment_type,
-    question_type: req.body.question_type,
+    feature_id: feature.id,
   });
 
   reply.send(assessment);

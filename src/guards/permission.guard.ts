@@ -1,9 +1,12 @@
-import { ForbiddenError } from "../utils/errors";
+import { FastifyRequest, FastifyReply } from 'fastify';
+import { ForbiddenError } from '../utils/errors';
 
-export function requirePermission(permissionCode: string) {
-  return async (request:any, reply:any) => {
-    if (!request.user.permissions.includes(permissionCode)) {
-      throw new ForbiddenError('Permission denied');
+export function requirePermission(permission: string) {
+  return async (request: FastifyRequest, _reply: FastifyReply) => {
+    const user = (request as any).user;
+
+    if (!user?.permissions?.includes(permission)) {
+      throw new ForbiddenError('Insufficient permissions');
     }
   };
 }

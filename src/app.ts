@@ -24,6 +24,7 @@ import { batchRoutes } from './routes/batch.routes';
 import { assessmentRoutes } from './routes/assessment.routes';
 // import multipart from '@fastify/multipart';
 import {institutionAdminRoutes} from './routes/institution.admin';
+import { rateLimitPlugin } from './plugins/rateLimit';
 
 export function buildApp() {
   const app = fastify({
@@ -68,6 +69,7 @@ export function buildApp() {
   app.register(inviteMailer);
   // app.register(requestUserPlugin);
   app.register(authPlugin);
+  app.register(rateLimitPlugin);
 
   // Request logging hook - track start time
   app.addHook('onRequest', async (request) => {
