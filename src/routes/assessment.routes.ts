@@ -26,6 +26,8 @@ import {
   updateMcqQuestionHandler,
   getQuestionForEditHandler,
   updateQuestionHandler,
+  deleteAssessmentQuestionHandler,
+  updateAssessmentHandler,
 } from '../controllers/assessment.controller';
 
 export async function assessmentRoutes(app: any) {
@@ -86,4 +88,14 @@ export async function assessmentRoutes(app: any) {
 
   app.get('/assessments/questions/:id', { preHandler: [authGuard] }, getQuestionForEditHandler);
   app.put('/assessments/questions/:id', { preHandler: [authGuard] }, updateQuestionHandler);
+
+  // delete assessment questions
+  app.delete(
+    '/assessments/:assessmentId/questions/:assessmentQuestionId',
+    { preHandler: [authGuard] },
+    deleteAssessmentQuestionHandler
+  );
+
+  // edit assessment (only if status = draft)
+  app.put('/assessments/:id', { preHandler: [authGuard] }, updateAssessmentHandler);
 }

@@ -4,10 +4,28 @@ import { ConflictError } from '../utils/errors';
 import { PrismaClient, AssessmentStatus, QuestionDifficulty, QuestionType } from '@prisma/client';
 import { timeAgo } from '../utils/time';
 import { capitalize, formatQuestionType } from '../utils/assessments/formatQuestionType';
+import { findOrCreateQuestion } from './question.service';
 
 /* -------------------------------
    CREATE
 -------------------------------- */
+interface CreateCodingQuestionBody {
+  topic?: string | string[];
+  problem_title: string;
+  problem_statement: string;
+  constraints: string;
+  input_format: string;
+  output_format: string;
+  sample_test_cases: {
+    input: string;
+    output: string;
+  }[];
+  supported_languages: string[];
+  difficulty_level: 'easy' | 'medium' | 'hard';
+  points: number;
+  time_limit_minutes: number;
+  is_mandatory?: boolean;
+}
 export interface AssessmentMetaData {
   category: string;
   assessment_type: string;
@@ -353,28 +371,29 @@ export async function createMCQQuestion(
   }
 ) {
   // 1️⃣ Create Question
-  const question = await prisma.question_bank.create({
-    data: {
+  const question = await findOrCreateQuestion(prisma,{
+    
       institution_id: institutionId,
       created_by: createdBy,
       question_text: body.question_text,
       difficulty_level: body.difficulty_level,
       question_type: body.question_type,
-      default_points: body.points,
+      points: body.points,
       tags: [body.topic], // 🔥 IMPORTANT for UI topic display
+      options: body.options,
     },
-  });
+  );
 
   // 2️⃣ Create Options
-  await prisma.question_options.createMany({
-    data: body.options.map((opt, index) => ({
-      question_id: question.id,
-      option_text: opt.option_text,
-      option_label: String.fromCharCode(65 + index),
-      is_correct: opt.is_correct,
-      sort_order: index,
-    })),
-  });
+  // await prisma.question_options.createMany({
+  //   data: body.options.map((opt, index) => ({
+  //     question_id: question.id,
+  //     option_text: opt.option_text,
+  //     option_label: String.fromCharCode(65 + index),
+  //     is_correct: opt.is_correct,
+  //     sort_order: index,
+  //   })),
+  // });
 
   // 3️⃣ Attach to Assessment
   await prisma.assessment_questions.create({
@@ -388,6 +407,7 @@ export async function createMCQQuestion(
 
   return {
     success: true,
+    assessment_question_id: question.id.toString(),
     question_id: question.id.toString(),
   };
 }
@@ -463,19 +483,13 @@ export async function listAssessmentQuestions(prisma: PrismaClient, assessmentId
     where: { assessment_id: assessmentId },
     orderBy: { added_at: 'asc' },
     include: {
-      question: {
-        select: {
-          question_text: true,
-          difficulty_level: true,
-          question_type: true,
-          tags: true,
-        },
+      question: true
       },
-    },
   });
 
   return rows.map((row, index) => ({
-    id: row.id.toString(),
+    assessment_question_id: row.id.toString(),
+    question_id: row.question_id.toString(),
     questionNo: index + 1,
     questionText: row.question.question_text,
     marks: row.points,
@@ -798,50 +812,28 @@ export async function createCodingQuestion(
   assessmentId: bigint,
   institutionId: number,
   createdBy: bigint,
-  body: {
-    topic?: string | string[];
-    problem_title: string;
-    problem_statement: string;
-    constraints: string;
-    input_format: string;
-    output_format: string;
-    sample_test_cases: { input: string; output: string }[];
-    supported_languages: string[];
-    difficulty_level: QuestionDifficulty;
-    points: number;
-    time_limit_minutes: number;
-    is_mandatory?: boolean;
-  }
+  body: CreateCodingQuestionBody
 ) {
-  const tags = normalizeTags(body.topic);
-  // 1️⃣ Create question in question_bank
-  const question = await prisma.question_bank.create({
-    data: {
-      institution_id: institutionId,
-      created_by: createdBy,
-      question_text: body.problem_title, // used in list UI
-      // question_type: 'coding' as QuestionType,
-      question_type: 'coding',
-      difficulty_level: body.difficulty_level,
-      default_points: body.points,
-      time_limit_seconds: body.time_limit_minutes * 60,
-
-      tags,
-
-      metadata: {
-        problem_title: body.problem_title,
-        problem_statement: body.problem_statement,
-        constraints: body.constraints,
-        input_format: body.input_format,
-        output_format: body.output_format,
-        sample_test_cases: body.sample_test_cases,
-        supported_languages: body.supported_languages,
-        time_limit_minutes: body.time_limit_minutes,
-      },
+  const question = await findOrCreateQuestion(prisma, {
+    institution_id: institutionId,
+    created_by: createdBy,
+    question_text: body.problem_title,
+    question_type: 'coding',
+    difficulty_level: body.difficulty_level,
+    points: body.points,
+    tags: normalizeTags(body.topic),
+    metadata: {
+      problem_title: body.problem_title,
+      problem_statement: body.problem_statement,
+      constraints: body.constraints,
+      input_format: body.input_format,
+      output_format: body.output_format,
+      sample_test_cases: body.sample_test_cases,
+      supported_languages: body.supported_languages,
+      time_limit_minutes: body.time_limit_minutes,
     },
   });
 
-  // 2️⃣ Attach to assessment
   await prisma.assessment_questions.create({
     data: {
       assessment_id: assessmentId,
@@ -851,11 +843,9 @@ export async function createCodingQuestion(
     },
   });
 
-  return {
-    success: true,
-    question_id: question.id.toString(),
-  };
+  return { success: true, question_id: question.id.toString() };
 }
+
 
 export async function getMcqQuestionForEdit(
   prisma: PrismaClient,
@@ -984,30 +974,34 @@ export async function updateMcqQuestion(
 }
 export async function getQuestionForEdit(
   prisma: PrismaClient,
-  questionId: bigint,
+  assessmentQuestionId: bigint,
   institutionId: number
 ) {
-  const question = await prisma.question_bank.findUnique({
-    where: { id: questionId },
+  const aq = await prisma.assessment_questions.findUnique({
+    where: { id: assessmentQuestionId },
     include: {
-      options: { orderBy: { sort_order: 'asc' } },
+      question: {
+        include: { options: { orderBy: { sort_order: 'asc' } } },
+      },
+      assessment: true,
     },
   });
 
-  if (!question) throw new Error('Question not found');
-  if (question.institution_id !== institutionId) throw new Error('Forbidden');
+  if (!aq) throw new Error('Question not found');
+  if (aq.assessment.institution_id !== institutionId) throw new Error('Forbidden');
 
-  const isCoding = Boolean((question.metadata as any)?.problem_statement);
+  const q = aq.question;
+  const isCoding = q.question_type === 'coding';
+  const meta = q.metadata as any;
 
   if (isCoding) {
-    const meta = question.metadata as any;
-
     return {
-      id: question.id.toString(),
+      assessment_question_id: aq.id.toString(),
+      question_id: q.id.toString(),
       type: 'coding',
-      topic: question.tags?.[0],
-      difficulty_level: question.difficulty_level,
-      points: question.default_points,
+      topic: q.tags?.[0],
+      difficulty_level: q.difficulty_level,
+      points: aq.points,
       time_limit_minutes: meta.time_limit_minutes,
       problem_title: meta.problem_title,
       problem_statement: meta.problem_statement,
@@ -1019,54 +1013,51 @@ export async function getQuestionForEdit(
     };
   }
 
-  // MCQ
   return {
-    id: question.id.toString(),
+    assessment_question_id: aq.id.toString(),
+    question_id: q.id.toString(),
     type: 'mcq',
-    topic: question.tags?.[0],
-    question_text: question.question_text,
-    difficulty_level: question.difficulty_level,
-    points: question.default_points,
-    options: question.options.map((o) => ({
+    topic: q.tags?.[0],
+    question_text: q.question_text,
+    difficulty_level: q.difficulty_level,
+    points: aq.points,
+    options: q.options.map((o) => ({
       id: o.id.toString(),
       option_text: o.option_text,
       is_correct: o.is_correct,
     })),
   };
 }
+
 export async function updateQuestion(
   prisma: PrismaClient,
-  questionId: bigint,
+  assessmentQuestionId: bigint,
   institutionId: number,
   userId: bigint,
   body: any
 ) {
-  const question = await prisma.question_bank.findUnique({
-    where: { id: questionId },
+  const aq = await prisma.assessment_questions.findUnique({
+    where: { id: assessmentQuestionId },
     include: {
-      assessment_questions: { include: { assessment: true } },
+      assessment: true,
+      question: true,
     },
   });
 
-  if (!question) throw new Error('Question not found');
-  if (question.institution_id !== institutionId) throw new Error('Forbidden');
+  if (!aq) throw new Error('Question not found');
+  if (aq.assessment.institution_id !== institutionId) throw new Error('Forbidden');
 
-  // ❌ block if used in published assessment
-  const published = question.assessment_questions.some(
-    (aq) => aq.assessment.status === 'published'
-  );
-  if (published) {
-    throw new Error('Cannot edit question used in published assessment');
+  if (aq.assessment.status !== 'draft') {
+    throw new Error('Cannot edit question in published assessment');
   }
 
-  const isCoding = Boolean((question.metadata as any)?.problem_statement);
-
-  if (isCoding) {
-    return updateCodingQuestion(prisma, questionId, body);
+  if (aq.question.question_type === 'coding') {
+    return updateCodingQuestion(prisma, aq.question_id, body);
   }
 
-  return updateMcqQuestionInternal(prisma, questionId, body);
+  return updateMcqQuestionInternal(prisma, aq.question_id, body);
 }
+
 async function updateMcqQuestionInternal(
   prisma: PrismaClient,
   questionId: bigint,
@@ -1165,4 +1156,84 @@ async function updateCodingQuestion(
   });
 
   return { success: true, type: 'coding' };
+}
+
+// assessment.service.ts
+export async function deleteAssessmentQuestion(
+  prisma: PrismaClient,
+  assessmentId: bigint,
+  assessmentQuestionId: bigint,
+  institutionId: number
+) {
+  const assessment = await prisma.assessments.findUnique({
+    where: { id: assessmentId },
+    select: {
+      status: true,
+      institution_id: true,
+    },
+  });
+
+  if (!assessment) throw new Error('Assessment not found');
+  if (assessment.institution_id !== institutionId) throw new Error('Forbidden');
+
+  if (assessment.status !== 'draft') {
+    throw new Error('Questions can be deleted only in draft assessments');
+  }
+
+  await prisma.assessment_questions.delete({
+    where: { id: assessmentQuestionId },
+  });
+}
+
+// assessment.service.ts
+export async function updateAssessment(
+  prisma: PrismaClient,
+  assessmentId: bigint,
+  institutionId: number,
+  body: {
+    title: string;
+    description?: string;
+    duration_minutes: number;
+    instructions?: string;
+    tags?: string[];
+    category: string;
+    assessment_type: string;
+    question_type: string;
+  }
+) {
+  const assessment = await prisma.assessments.findUnique({
+    where: { id: assessmentId },
+  });
+
+  if (!assessment) throw new Error('Assessment not found');
+
+  if (assessment.institution_id !== institutionId) {
+    throw new Error('Forbidden');
+  }
+
+  if (assessment.status !== 'draft') {
+    throw new Error('Only draft assessments can be edited');
+  }
+
+  await prisma.assessments.update({
+    where: { id: assessmentId },
+    data: {
+      title: body.title,
+      description: body.description,
+      duration_minutes: body.duration_minutes,
+      instructions: body.instructions,
+      tags: body.tags ?? [],
+      metadata: {
+        category: body.category,
+        assessment_type: body.assessment_type,
+        question_type: body.question_type,
+      },
+      updated_at: new Date(),
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Assessment updated successfully',
+  };
 }

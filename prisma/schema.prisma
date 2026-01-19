@@ -290,6 +290,8 @@ model question_bank {
   institution          institutions           @relation(fields: [institution_id], references: [id])
   verifier             users?                 @relation("QuestionVerifier", fields: [verified_by], references: [id])
   options              question_options[]
+
+  @@index([institution_id, question_type, question_text])
 }
 
 model question_options {

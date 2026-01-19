@@ -508,3 +508,51 @@ export async function updateQuestionHandler(
 
   reply.send(result);
 }
+
+export async function deleteAssessmentQuestionHandler(
+  req: FastifyRequest<{
+    Params: {
+      assessmentId: string;
+      assessmentQuestionId: string;
+    };
+  }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  await service.deleteAssessmentQuestion(
+    req.prisma,
+    BigInt(req.params.assessmentId),
+    BigInt(req.params.assessmentQuestionId),
+    user.institution_id
+  );
+
+  reply.send({ success: true });
+}
+
+interface UpdateAssessmentBody {
+  title: string;
+  description?: string;
+  duration_minutes: number;
+  instructions?: string;
+  tags?: string[];
+  category: string;
+  assessment_type: string;
+  question_type: string;
+}
+
+export async function updateAssessmentHandler(
+  req: FastifyRequest<{ Params: { id: string }; Body: UpdateAssessmentBody }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const result = await service.updateAssessment(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id,
+    req.body
+  );
+
+  reply.send(result);
+}
