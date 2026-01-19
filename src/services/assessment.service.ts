@@ -56,7 +56,6 @@ export async function createAssessment(
   });
 }
 
-
 /* -------------------------------
    AUDIENCE
 -------------------------------- */
@@ -213,7 +212,6 @@ export async function getAssessmentSummary(prisma: PrismaClient, assessmentId: b
     testCaseStatus: codingCount === 0 ? null : codingTestCasesConfigured ? 'Configured' : 'Missing',
   };
 }
-
 
 /* -------------------------------
    SCHEDULE & PUBLISH
@@ -409,7 +407,7 @@ export async function getAssessmentAudienceMeta(prisma: PrismaClient, institutio
       name: 'asc',
     },
   });
-  console.log("batches...", batches)
+  console.log('batches...', batches);
   /**
    * Build structure:
    * Category → Department → Batches
@@ -801,7 +799,7 @@ export async function createCodingQuestion(
   institutionId: number,
   createdBy: bigint,
   body: {
-    topic: string;
+    topic?: string | string[];
     problem_title: string;
     problem_statement: string;
     constraints: string;
@@ -815,6 +813,7 @@ export async function createCodingQuestion(
     is_mandatory?: boolean;
   }
 ) {
+  const tags = normalizeTags(body.topic);
   // 1️⃣ Create question in question_bank
   const question = await prisma.question_bank.create({
     data: {
@@ -822,12 +821,12 @@ export async function createCodingQuestion(
       created_by: createdBy,
       question_text: body.problem_title, // used in list UI
       // question_type: 'coding' as QuestionType,
-      question_type: 'single_correct',
+      question_type: 'coding',
       difficulty_level: body.difficulty_level,
       default_points: body.points,
       time_limit_seconds: body.time_limit_minutes * 60,
 
-      tags: [body.topic],
+      tags,
 
       metadata: {
         problem_title: body.problem_title,
@@ -858,3 +857,312 @@ export async function createCodingQuestion(
   };
 }
 
+export async function getMcqQuestionForEdit(
+  prisma: PrismaClient,
+  questionId: bigint,
+  institutionId: number
+) {
+  const question = await prisma.question_bank.findUnique({
+    where: { id: questionId },
+    include: {
+      options: {
+        orderBy: { sort_order: 'asc' },
+      },
+    },
+  });
+
+  if (!question) throw new Error('Question not found');
+
+  if (question.institution_id !== institutionId) {
+    throw new Error('Forbidden');
+  }
+
+  if (
+    question.question_type !== 'single_correct' &&
+    question.question_type !== 'multiple_correct' &&
+    question.question_type !== 'true_false'
+  ) {
+    throw new Error('Not an MCQ question');
+  }
+
+  return {
+    id: question.id.toString(),
+    topic: question.tags?.[0] ?? null,
+    question_text: question.question_text,
+    difficulty_level: question.difficulty_level,
+    points: question.default_points,
+    options: question.options.map((o) => ({
+      id: o.id.toString(),
+      option_text: o.option_text,
+      is_correct: o.is_correct,
+    })),
+  };
+}
+
+export async function updateMcqQuestion(
+  prisma: PrismaClient,
+  questionId: bigint,
+  institutionId: number,
+  userId: bigint,
+  body: {
+    topic: string;
+    question_text: string;
+    difficulty_level: QuestionDifficulty;
+    points: number;
+    negative_points?: number;
+    options: { option_text: string; is_correct: boolean }[];
+  }
+) {
+  if (body.options.length < 2) {
+    throw new Error('At least 2 options required');
+  }
+
+  const correctCount = body.options.filter((o) => o.is_correct).length;
+  if (correctCount === 0) {
+    throw new Error('At least one correct option required');
+  }
+
+  const question = await prisma.question_bank.findUnique({
+    where: { id: questionId },
+    include: {
+      assessment_questions: {
+        include: { assessment: true },
+      },
+    },
+  });
+
+  if (!question) throw new Error('Question not found');
+
+  if (question.institution_id !== institutionId) {
+    throw new Error('Forbidden');
+  }
+
+  // ❌ Block edit if assessment is published
+  const linkedPublished = question.assessment_questions.some(
+    (aq) => aq.assessment.status === 'published'
+  );
+
+  if (linkedPublished) {
+    throw new Error('Cannot edit question used in published assessment');
+  }
+
+  // 🔒 Atomic update
+  await prisma.$transaction(async (tx) => {
+    // 1️⃣ Update question
+    await tx.question_bank.update({
+      where: { id: questionId },
+      data: {
+        question_text: body.question_text,
+        difficulty_level: body.difficulty_level,
+        default_points: body.points,
+        tags: [body.topic],
+        updated_at: new Date(),
+      },
+    });
+
+    // 2️⃣ Delete old options
+    await tx.question_options.deleteMany({
+      where: { question_id: questionId },
+    });
+
+    // 3️⃣ Insert new options
+    await tx.question_options.createMany({
+      data: body.options.map((opt, index) => ({
+        question_id: questionId,
+        option_text: opt.option_text,
+        option_label: String.fromCharCode(65 + index),
+        is_correct: opt.is_correct,
+        sort_order: index,
+      })),
+    });
+  });
+
+  return {
+    success: true,
+    message: 'MCQ question updated successfully',
+  };
+}
+export async function getQuestionForEdit(
+  prisma: PrismaClient,
+  questionId: bigint,
+  institutionId: number
+) {
+  const question = await prisma.question_bank.findUnique({
+    where: { id: questionId },
+    include: {
+      options: { orderBy: { sort_order: 'asc' } },
+    },
+  });
+
+  if (!question) throw new Error('Question not found');
+  if (question.institution_id !== institutionId) throw new Error('Forbidden');
+
+  const isCoding = Boolean((question.metadata as any)?.problem_statement);
+
+  if (isCoding) {
+    const meta = question.metadata as any;
+
+    return {
+      id: question.id.toString(),
+      type: 'coding',
+      topic: question.tags?.[0],
+      difficulty_level: question.difficulty_level,
+      points: question.default_points,
+      time_limit_minutes: meta.time_limit_minutes,
+      problem_title: meta.problem_title,
+      problem_statement: meta.problem_statement,
+      constraints: meta.constraints,
+      input_format: meta.input_format,
+      output_format: meta.output_format,
+      supported_languages: meta.supported_languages,
+      sample_test_cases: meta.sample_test_cases,
+    };
+  }
+
+  // MCQ
+  return {
+    id: question.id.toString(),
+    type: 'mcq',
+    topic: question.tags?.[0],
+    question_text: question.question_text,
+    difficulty_level: question.difficulty_level,
+    points: question.default_points,
+    options: question.options.map((o) => ({
+      id: o.id.toString(),
+      option_text: o.option_text,
+      is_correct: o.is_correct,
+    })),
+  };
+}
+export async function updateQuestion(
+  prisma: PrismaClient,
+  questionId: bigint,
+  institutionId: number,
+  userId: bigint,
+  body: any
+) {
+  const question = await prisma.question_bank.findUnique({
+    where: { id: questionId },
+    include: {
+      assessment_questions: { include: { assessment: true } },
+    },
+  });
+
+  if (!question) throw new Error('Question not found');
+  if (question.institution_id !== institutionId) throw new Error('Forbidden');
+
+  // ❌ block if used in published assessment
+  const published = question.assessment_questions.some(
+    (aq) => aq.assessment.status === 'published'
+  );
+  if (published) {
+    throw new Error('Cannot edit question used in published assessment');
+  }
+
+  const isCoding = Boolean((question.metadata as any)?.problem_statement);
+
+  if (isCoding) {
+    return updateCodingQuestion(prisma, questionId, body);
+  }
+
+  return updateMcqQuestionInternal(prisma, questionId, body);
+}
+async function updateMcqQuestionInternal(
+  prisma: PrismaClient,
+  questionId: bigint,
+  body: {
+    topic?: string | string[];
+    question_text: string;
+    difficulty_level: QuestionDifficulty;
+    points: number;
+    options: { option_text: string; is_correct: boolean }[];
+  }
+) {
+  const tags = normalizeTags(body.topic);
+  if (body.options.length < 2) {
+    throw new Error('At least 2 options required');
+  }
+
+  if (!body.options.some((o) => o.is_correct)) {
+    throw new Error('At least one correct option required');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.question_bank.update({
+      where: { id: questionId },
+      data: {
+        question_text: body.question_text,
+        difficulty_level: body.difficulty_level,
+        default_points: body.points,
+        tags,
+        updated_at: new Date(),
+      },
+    });
+
+    await tx.question_options.deleteMany({
+      where: { question_id: questionId },
+    });
+
+    await tx.question_options.createMany({
+      data: body.options.map((opt, index) => ({
+        question_id: questionId,
+        option_text: opt.option_text,
+        option_label: String.fromCharCode(65 + index),
+        is_correct: opt.is_correct,
+        sort_order: index,
+      })),
+    });
+  });
+
+  return { success: true, type: 'mcq' };
+}
+function normalizeTags(topic?: string | string[]) {
+  if (!topic) return [];
+  if (Array.isArray(topic)) {
+    return topic.filter(Boolean);
+  }
+  return [topic];
+}
+
+async function updateCodingQuestion(
+  prisma: PrismaClient,
+  questionId: bigint,
+  body: {
+    topic?: string | string[];
+    problem_title: string;
+    problem_statement: string;
+    constraints: string;
+    input_format: string;
+    output_format: string;
+    sample_test_cases: { input: string; output: string }[];
+    supported_languages: string[];
+    difficulty_level: QuestionDifficulty;
+    points: number;
+    time_limit_minutes: number;
+  }
+) {
+  const tags = normalizeTags(body.topic);
+  await prisma.question_bank.update({
+    where: { id: questionId },
+    data: {
+      question_text: body.problem_title,
+      difficulty_level: body.difficulty_level,
+      default_points: body.points,
+      time_limit_seconds: body.time_limit_minutes * 60,
+      tags,
+      metadata: {
+        problem_title: body.problem_title,
+        problem_statement: body.problem_statement,
+        constraints: body.constraints,
+        input_format: body.input_format,
+        output_format: body.output_format,
+        supported_languages: body.supported_languages,
+        sample_test_cases: body.sample_test_cases,
+        time_limit_minutes: body.time_limit_minutes,
+      },
+      updated_at: new Date(),
+    },
+  });
+
+  return { success: true, type: 'coding' };
+}

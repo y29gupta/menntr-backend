@@ -21,8 +21,23 @@ function requirePermission(user: any, permission: string) {
     throw new ForbiddenError('Insufficient permissions');
   }
 }
-interface CreateCodingQuestionBody {
+
+interface UpdateMcqBody {
   topic: string;
+  question_text: string;
+  difficulty_level: 'easy' | 'medium' | 'hard';
+  points: number;
+  negative_points?: number;
+  is_mandatory?: boolean;
+  options: {
+    id?: string; // optional (for UI tracking)
+    option_text: string;
+    is_correct: boolean;
+  }[];
+}
+
+interface CreateCodingQuestionBody {
+  topic?: string | string[];
   problem_title: string;
   problem_statement: string;
   constraints: string;
@@ -422,6 +437,68 @@ export async function createCodingQuestionHandler(
   const user = req.user as any;
 
   const result = await service.createCodingQuestion(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id,
+    BigInt(user.sub),
+    req.body
+  );
+
+  reply.send(result);
+}
+
+export async function getMcqQuestionHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const question = await service.getMcqQuestionForEdit(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id
+  );
+
+  reply.send(question);
+}
+export async function updateMcqQuestionHandler(
+  req: FastifyRequest<{ Params: { id: string }; Body: UpdateMcqBody }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const updated = await service.updateMcqQuestion(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id,
+    BigInt(user.sub),
+    req.body
+  );
+
+  reply.send(updated);
+}
+
+export async function getQuestionForEditHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const data = await service.getQuestionForEdit(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id
+  );
+
+  reply.send(data);
+}
+export async function updateQuestionHandler(
+  req: FastifyRequest<{ Params: { id: string }; Body: any }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const result = await service.updateQuestion(
     req.prisma,
     BigInt(req.params.id),
     user.institution_id,
