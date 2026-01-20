@@ -723,25 +723,31 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
         email: user.email,
       };
     });
-try {
-  const emailService = new EmailService(request.server.mailer);
+    console.log(result, "Result")
+if (!result?.id) {
+  request.log.error({ result }, 'User ID missing after creation');
+  warnings.push('User created but invite could not be generated (invalid user id)');
+} else {
+  try {
+    const emailService = new EmailService(request.server.mailer);
 
-  await sendInviteInternal({
-    prisma,
-    emailService,
-    userId: BigInt(result.id),
-    email: result.email,
-    firstName: result.first_name,
-    lastName: result.last_name,
-    inviteType: payload.inviteType ?? 'faculty',
-    institutionName: institution.name,
-    institutionCode: institution.code,
-    inviterName: authUser?.name,
-    role: role?.name,
-  });
-} catch (err) {
-  request.log.error(err, 'Invite email failed');
-  warnings.push('User created, but invite email failed');
+    await sendInviteInternal({
+      prisma,
+      emailService,
+      userId: result.id, // ✅ NO BigInt()
+      email: result.email,
+      firstName: result.first_name,
+      lastName: result.last_name,
+      inviteType: payload.inviteType ?? 'faculty',
+      institutionName: institution.name,
+      institutionCode: institution.code,
+      inviterName: authUser?.name,
+      role: role?.name,
+    });
+  } catch (err) {
+    request.log.error(err, 'Invite email failed');
+    warnings.push('User created, but invite email failed');
+  }
 }
     /* --------------------------------------------------
      * 8️⃣ Response
