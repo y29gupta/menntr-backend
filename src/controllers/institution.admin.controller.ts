@@ -724,7 +724,7 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
       };
     });
     console.log(result, "Result")
-if (!result?.id) {
+if (!result?.userId) {
   request.log.error({ result }, 'User ID missing after creation');
   warnings.push('User created but invite could not be generated (invalid user id)');
 } else {
