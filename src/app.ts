@@ -25,6 +25,7 @@ import { assessmentRoutes } from './routes/assessment.routes';
 // import multipart from '@fastify/multipart';
 import {institutionAdminRoutes} from './routes/institution.admin';
 import {dashboardRoutes} from "./routes/dashboard.routes";
+import {studentRoutes} from "./routes/student.routes";
 import { rateLimitPlugin } from './plugins/rateLimit';
 
 export function buildApp() {
@@ -117,6 +118,7 @@ export function buildApp() {
   app.register(assessmentRoutes);
   app.register(institutionAdminRoutes);
   app.register(dashboardRoutes);
+  app.register(studentRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {

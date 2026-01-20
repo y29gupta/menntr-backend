@@ -132,7 +132,7 @@ model users {
   user_permission_overrides_user_permission_overrides_user_idTousers    user_permission_overrides[] @relation("user_permission_overrides_user_idTousers")
   user_roles                                                            user_roles[]
   institution                                                           institutions?               @relation(fields: [institution_id], references: [id])
-
+  
   @@unique([email, institution_id])
 }
 
