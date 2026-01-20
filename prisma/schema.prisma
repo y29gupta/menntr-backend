@@ -291,7 +291,7 @@ model question_bank {
   verifier             users?                 @relation("QuestionVerifier", fields: [verified_by], references: [id])
   options              question_options[]
 
-  @@index([institution_id, question_type, question_text])
+  @@unique([institution_id, question_text, question_type], name:"uq_question_per_institution")
 }
 
 model question_options {

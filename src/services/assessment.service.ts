@@ -407,7 +407,6 @@ export async function createMCQQuestion(
 
   return {
     success: true,
-    assessment_question_id: question.id.toString(),
     question_id: question.id.toString(),
   };
 }
@@ -611,7 +610,15 @@ export interface BulkUploadMcqInput {
   user_id: bigint;
 }
 
-export async function bulkUploadMcqs(prisma: PrismaClient, input: BulkUploadMcqInput) {
+export async function bulkUploadMcqs(
+  prisma: PrismaClient,
+  input: {
+    fileName: string;
+    buffer: Buffer;
+    institution_id: number;
+    user_id: bigint;
+  }
+) {
   let rows: any[] = [];
 
   // ------------------------
@@ -647,7 +654,7 @@ export async function bulkUploadMcqs(prisma: PrismaClient, input: BulkUploadMcqI
   let skipped = 0;
 
   // ------------------------
-  // Insert questions (NO TRANSACTION)
+  // Insert / Reuse questions
   // ------------------------
   for (const row of rows) {
     const questionText = row['Question'];
@@ -657,52 +664,53 @@ export async function bulkUploadMcqs(prisma: PrismaClient, input: BulkUploadMcqI
     const difficultyRaw = row['Difficulty Level']?.toLowerCase();
     const score = Number(row['Score']) || 1;
 
-    if (!questionText || !correctAnswer) {
+    const answers = [row['Answer 1'], row['Answer 2'], row['Answer 3'], row['Answer 4']];
+
+    if (!questionText || !correctAnswer || answers.filter(Boolean).length < 2) {
       skipped++;
       continue;
     }
 
-    const question = await prisma.question_bank.create({
-      data: {
-        institution_id: input.institution_id,
-        created_by: input.user_id,
-        question_text: questionText,
-        difficulty_level: difficultyMap[difficultyRaw] ?? 'medium',
-        default_points: score,
-        metadata: {
-          topic,
-          sub_topic: subTopic,
-        },
-        tags: [topic, subTopic].filter(Boolean),
+    // 🔑 SINGLE SOURCE OF TRUTH
+    const question = await findOrCreateQuestion(prisma, {
+      institution_id: input.institution_id,
+      created_by: input.user_id,
+      question_text: questionText,
+      question_type: 'single_correct',
+      difficulty_level: difficultyMap[difficultyRaw] ?? 'medium',
+      points: score,
+      tags: [topic, subTopic].filter(Boolean),
+      metadata: {
+        topic,
+        sub_topic: subTopic,
       },
+      options: answers
+        .map((ans: string) =>
+          ans
+            ? {
+                option_text: ans,
+                is_correct: ans === correctAnswer,
+              }
+            : null
+        )
+        .filter(Boolean) as any[],
     });
 
-    const answers = [row['Answer 1'], row['Answer 2'], row['Answer 3'], row['Answer 4']];
-
-    const labels = ['A', 'B', 'C', 'D'];
-
-    for (let i = 0; i < answers.length; i++) {
-      if (!answers[i]) continue;
-
-      await prisma.question_options.create({
-        data: {
-          question_id: question.id,
-          option_label: labels[i],
-          option_text: answers[i],
-          is_correct: answers[i] === correctAnswer,
-        },
-      });
+    // If question already existed → skip count
+    if (question.created_at.getTime() !== question.updated_at.getTime()) {
+      skipped++;
+    } else {
+      created++;
     }
-
-    created++;
   }
 
   return {
     success: true,
     uploaded_questions: created,
-    skipped_rows: skipped,
+    skipped_duplicates: skipped,
   };
 }
+
 
 export async function bulkCreateMcqForAssessment(
   prisma: PrismaClient,
@@ -716,10 +724,12 @@ export async function bulkCreateMcqForAssessment(
 ) {
   let rows: any[] = [];
 
+  // ------------------------
   // Parse file
+  // ------------------------
   if (input.fileName.endsWith('.xlsx')) {
-    const wb = XLSX.read(input.buffer);
-    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const workbook = XLSX.read(input.buffer);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
     rows = XLSX.utils.sheet_to_json(sheet);
   } else if (input.fileName.endsWith('.csv')) {
     rows = parse(input.buffer, {
@@ -728,10 +738,12 @@ export async function bulkCreateMcqForAssessment(
       trim: true,
     });
   } else {
-    throw new Error('Only CSV or Excel supported');
+    throw new Error('Only CSV or Excel files are supported');
   }
 
-  if (!rows.length) throw new Error('Empty file');
+  if (!rows.length) {
+    throw new Error('Uploaded file is empty');
+  }
 
   const difficultyMap: Record<string, QuestionDifficulty> = {
     easy: 'easy',
@@ -741,55 +753,57 @@ export async function bulkCreateMcqForAssessment(
     expert: 'expert',
   };
 
-  let created = 0;
+  let attached = 0;
   let skipped = 0;
 
+  // ------------------------
+  // Create / Attach questions
+  // ------------------------
   for (const row of rows) {
     const questionText = row['Question'];
     const topic = row['Question Topic'];
     const subTopic = row['Sub Topic'];
-    const correct = row['Correct Answer'];
+    const correctAnswer = row['Correct Answer'];
     const score = Number(row['Score']) || 1;
 
     const answers = [row['Answer 1'], row['Answer 2'], row['Answer 3'], row['Answer 4']];
 
-    if (!questionText || !correct || answers.filter(Boolean).length < 2) {
+    if (!questionText || !correctAnswer || answers.filter(Boolean).length < 2) {
       skipped++;
       continue;
     }
 
-    // 1️⃣ Create Question
-    const question = await prisma.question_bank.create({
-      data: {
-        institution_id: input.institution_id,
-        created_by: input.created_by,
-        question_text: questionText,
-        difficulty_level: difficultyMap[row['Difficulty Level']?.toLowerCase()] ?? 'medium',
-        question_type: 'single_correct',
-        default_points: score,
-        tags: [topic, subTopic].filter(Boolean),
-      },
+    // 🔑 Reuse or create question
+    const question = await findOrCreateQuestion(prisma, {
+      institution_id: input.institution_id,
+      created_by: input.created_by,
+      question_text: questionText,
+      question_type: 'single_correct',
+      difficulty_level: difficultyMap[row['Difficulty Level']?.toLowerCase()] ?? 'medium',
+      points: score,
+      tags: [topic, subTopic].filter(Boolean),
+      options: answers
+        .map((ans: string) =>
+          ans
+            ? {
+                option_text: ans,
+                is_correct: ans === correctAnswer,
+              }
+            : null
+        )
+        .filter(Boolean) as any[],
     });
 
-    const labels = ['A', 'B', 'C', 'D'];
-
-    // 2️⃣ Create options
-    for (let i = 0; i < answers.length; i++) {
-      if (!answers[i]) continue;
-
-      await prisma.question_options.create({
-        data: {
+    // 🔒 Prevent duplicate attachment to same assessment
+    await prisma.assessment_questions.upsert({
+      where: {
+        assessment_id_question_id: {
+          assessment_id: input.assessment_id,
           question_id: question.id,
-          option_label: labels[i],
-          option_text: answers[i],
-          is_correct: answers[i] === correct,
         },
-      });
-    }
-
-    // 3️⃣ Attach to Assessment
-    await prisma.assessment_questions.create({
-      data: {
+      },
+      update: {},
+      create: {
         assessment_id: input.assessment_id,
         question_id: question.id,
         points: score,
@@ -797,15 +811,16 @@ export async function bulkCreateMcqForAssessment(
       },
     });
 
-    created++;
+    attached++;
   }
 
   return {
     success: true,
-    attached_questions: created,
-    skipped_rows: skipped,
+    attached_questions: attached,
+    skipped_duplicates: skipped,
   };
 }
+
 
 export async function createCodingQuestion(
   prisma: PrismaClient,
