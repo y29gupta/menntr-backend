@@ -5,6 +5,8 @@ import { BlobServiceClient } from '@azure/storage-blob';
 import { MultipartFile } from '@fastify/multipart';
 import XLSX from 'xlsx';
 import bcrypt from 'bcrypt';
+import { sendInviteInternal } from '../services/invite.service';
+import { EmailService } from '../services/email';
 
 const CreateInstitutionMemberSchema = z.object({
   firstName: z.string().min(2),
@@ -721,7 +723,26 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
         email: user.email,
       };
     });
+try {
+  const emailService = new EmailService(request.server.mailer);
 
+  await sendInviteInternal({
+    prisma,
+    emailService,
+    userId: result.id,
+    email: result.email,
+    firstName: result.first_name,
+    lastName: result.last_name,
+    inviteType: payload.inviteType ?? 'faculty',
+    institutionName: institution.name,
+    institutionCode: institution.code,
+    inviterName: authUser?.name,
+    role: role?.name,
+  });
+} catch (err) {
+  request.log.error(err, 'Invite email failed');
+  warnings.push('User created, but invite email failed');
+}
     /* --------------------------------------------------
      * 8️⃣ Response
      * -------------------------------------------------- */
