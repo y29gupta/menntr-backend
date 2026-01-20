@@ -729,7 +729,7 @@ try {
   await sendInviteInternal({
     prisma,
     emailService,
-    userId: result.id,
+    userId: BigInt(result.id),
     email: result.email,
     firstName: result.first_name,
     lastName: result.last_name,

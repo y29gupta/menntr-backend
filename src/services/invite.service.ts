@@ -32,16 +32,22 @@ export async function sendInviteInternal({
   inviterName,
   role,
 }: SendInviteParams): Promise<void> {
+  if (!userId) {
+    throw new Error('sendInviteInternal: userId is missing');
+  }
+
   const { token, hash } = AuthService.generateToken();
 
   const expiresAt = new Date(Date.now() + config.auth.otpExpiryMinutes * 60 * 1000);
 
   await prisma.auth_tokens.create({
     data: {
-      user_id: userId,
       token_hash: hash,
       type: token_type.email_verification,
       expires_at: expiresAt,
+      user: {
+        connect: { id: userId },
+      },
     },
   });
 
@@ -55,3 +61,4 @@ export async function sendInviteInternal({
     role,
   });
 }
+
