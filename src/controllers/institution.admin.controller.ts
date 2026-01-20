@@ -734,7 +734,7 @@ if (!result?.id) {
     await sendInviteInternal({
       prisma,
       emailService,
-      userId: result.id, // ✅ NO BigInt()
+      userId: result.userId,
       email: result.email,
       firstName: result.first_name,
       lastName: result.last_name,
