@@ -250,6 +250,7 @@ model batches {
 model batch_students {
   batch_id        Int
   student_id      BigInt
+  section_id      Int?
   enrollment_date DateTime @default(now())
   roll_number     String?
   is_active       Boolean  @default(true)

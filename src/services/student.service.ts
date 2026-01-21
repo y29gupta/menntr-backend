@@ -1,6 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { timeAgo } from '../utils/time';
 import { ConflictError } from '../utils/errors';
+import { getPagination, buildPaginatedResponse } from '../utils/pagination';
+import { buildGlobalSearch } from '../utils/search';
 /* -----------------------------
    META (Filters)
 ------------------------------ */
@@ -42,27 +44,45 @@ export async function listStudents(
     status?: string;
   }
 ) {
-  const page = params.page ?? 1;
-  const limit = params.limit ?? 10;
-  const skip = (page - 1) * limit;
+  const { page, limit, skip } = getPagination(params);
 
   const where: any = {
     institution_id: params.institution_id,
     status: params.status ?? 'active',
     user_roles: {
-      some: {
-        role: { name: 'Student' },
+      some: { role: { name: 'Student' } },
+    },
+  };
+  if (params.batch_id) {
+    where.batchStudents = {
+      some: { batch_id: params.batch_id },
+    };
+  }
+if (params.department_role_id) {
+  where.batchStudents = {
+    some: {
+      batch: {
+        department_role_id: params.department_role_id,
       },
     },
   };
+}
 
-  if (params.search) {
-    where.OR = [
-      { first_name: { contains: params.search, mode: 'insensitive' } },
-      { last_name: { contains: params.search, mode: 'insensitive' } },
-      { email: { contains: params.search, mode: 'insensitive' } },
-    ];
-  }
+if (params.search) {
+  where.OR = [
+    { first_name: { contains: params.search, mode: 'insensitive' } },
+    { last_name: { contains: params.search, mode: 'insensitive' } },
+    { email: { contains: params.search, mode: 'insensitive' } },
+    {
+      batchStudents: {
+        some: {
+          roll_number: { contains: params.search, mode: 'insensitive' },
+        },
+      },
+    },
+  ];
+}
+
 
   const [students, total] = await Promise.all([
     prisma.users.findMany({
@@ -80,6 +100,9 @@ export async function listStudents(
               include: {
                 category_role: true,
                 department_role: true,
+                sections: {
+                  orderBy: { sort_order: 'asc' },
+                },
               },
             },
           },
@@ -105,31 +128,23 @@ export async function listStudents(
 
     return {
       id: s.id.toString(),
-
-      // UI columns
       studentName: `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim(),
       email: s.email,
       rollNumber: batch?.roll_number ?? '-',
-
       category: batch?.batch.category_role?.name ?? '-',
       department: batch?.batch.department_role?.name ?? '-',
       batch: batch ? `${batch.batch.academic_year}` : '-',
-      section: batch?.batch.code ?? '-',
-
+      section: batch?.section_id
+        ? (batch.batch.sections.find((s) => s.id === batch.section_id)?.name ?? '-')
+        : '-',
       assessmentsTaken: attempts.length,
       averageScore: avgScore,
-
       status: s.status,
       lastLogin: s.last_login_at ? timeAgo(s.last_login_at) : '-',
     };
   });
 
-  return {
-    total,
-    page,
-    limit,
-    students: rows,
-  };
+  return buildPaginatedResponse(rows, total, page, limit);
 }
 
 /* -----------------------------
@@ -300,7 +315,6 @@ export async function getBatches(
   };
 }
 
-
 /* -----------------------------
    SAVE ACADEMIC DETAILS
 ------------------------------ */
@@ -311,6 +325,7 @@ export async function saveAcademicDetails(
     student_id: bigint;
     institution_id: number;
     batch_id: number;
+    section_id?: number;
     roll_number?: string;
   }
 ) {
@@ -324,11 +339,24 @@ export async function saveAcademicDetails(
   if (existing) {
     throw new ConflictError('Academic details already added for this student');
   }
+  // 2️⃣ Validate section belongs to batch (VERY IMPORTANT)
+  if (input.section_id) {
+    const section = await prisma.batch_sections.findFirst({
+      where: {
+        id: input.section_id,
+        batch_id: input.batch_id,
+      },
+    });
 
+    if (!section) {
+      throw new ConflictError('Invalid section for selected batch');
+    }
+  }
   await prisma.batch_students.create({
     data: {
       student_id: input.student_id,
       batch_id: input.batch_id,
+      section_id: input.section_id ?? null,
       roll_number: input.roll_number,
     },
   });
@@ -611,6 +639,7 @@ export async function getStudent(
             include: {
               category_role: true,
               department_role: true,
+              sections: true,
             },
           },
         },
@@ -642,6 +671,10 @@ export async function getStudent(
           category_role_id: batch.batch.category_role_id,
           department_role_id: batch.batch.department_role_id,
           batch_id: batch.batch_id,
+          section_id: batch.section_id,
+          section_name: batch.section_id
+            ? batch.batch.sections.find((s) => s.id === batch.section_id)?.name
+            : null,
           roll_number: batch.roll_number,
         }
       : null,
