@@ -112,7 +112,7 @@ if (params.search) {
         },
       },
     }),
-    prisma.users.count({ where }),
+    prisma.users.count({ where }), //
   ]);
 
   const rows = students.map((s) => {
