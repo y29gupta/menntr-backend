@@ -15,6 +15,7 @@ import {
   listUsers,
 
 } from '../controllers/institution.admin.controller';
+import { authGuard } from '../hooks/auth.guard';
 
 
 export async function institutionAdminRoutes(fastify: FastifyInstance) {
@@ -27,7 +28,7 @@ export async function institutionAdminRoutes(fastify: FastifyInstance) {
   fastify.post('/institutionsadmin/create-user', createUserFlexible);
   fastify.post('/institutionsadmin/members', createInstitutionMemberHandler);
   fastify.get('/institutionsadmin/access-summary/:userId', getUserAccessSummaryHandler);
-  fastify.get('/institutionsadmin/user-management/users', listUsers);
+  fastify.get('/institutionsadmin/user-management/users',{preHandler: [authGuard]}, listUsers);
   fastify.post('/users/bulk-upload', bulkCreateUsersFromExcel);
   fastify.patch('/users/status/:id', changeUserStatus);
 }

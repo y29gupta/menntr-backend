@@ -20,10 +20,13 @@ import { organizationRoutes } from './routes/organization.routes';
 import { categoryRoutes } from './routes/category.routes';
 import {userManagementRoutes} from './routes/userManagement.routes';
 import { batchRoutes } from './routes/batch.routes';
-import {mcqRoutes} from './routes/mcq.routes';
+// import {mcqRoutes} from './routes/mcq.routes';
 import { assessmentRoutes } from './routes/assessment.routes';
 // import multipart from '@fastify/multipart';
 import {institutionAdminRoutes} from './routes/institution.admin';
+import {dashboardRoutes} from "./routes/dashboard.routes";
+import {studentRoutes} from "./routes/student.routes";
+import { rateLimitPlugin } from './plugins/rateLimit';
 
 export function buildApp() {
   const app = fastify({
@@ -68,6 +71,7 @@ export function buildApp() {
   app.register(inviteMailer);
   // app.register(requestUserPlugin);
   app.register(authPlugin);
+  app.register(rateLimitPlugin);
 
   // Request logging hook - track start time
   app.addHook('onRequest', async (request) => {
@@ -110,9 +114,11 @@ export function buildApp() {
   app.register(categoryRoutes);
   app.register(userManagementRoutes);
   app.register(batchRoutes);
-  app.register(mcqRoutes);
+  // app.register(mcqRoutes);
   app.register(assessmentRoutes);
   app.register(institutionAdminRoutes);
+  app.register(dashboardRoutes);
+  app.register(studentRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {
