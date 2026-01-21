@@ -1223,3 +1223,69 @@ export async function bulkCreateUsersFromExcel(request: FastifyRequest, reply: F
     });
   }
 }
+
+
+
+
+
+type ChangeUserStatusBody = {
+  status: 'active' | 'suspended';
+};
+
+type ChangeUserStatusParams = {
+  id: string;
+};
+
+export async function changeUserStatus(
+  request: FastifyRequest<{
+    Params: ChangeUserStatusParams;
+    Body: ChangeUserStatusBody;
+  }>,
+  reply: FastifyReply
+) {
+  try {
+    const prisma = request.server.prisma;
+    const { id } = request.params;
+    const { status } = request.body;
+
+    // ✅ Validate status against enum
+    if (!['active', 'suspended'].includes(status)) {
+      return reply.code(400).send({
+        error: 'Invalid status. Allowed values: active, suspended',
+      });
+    }
+
+    // ✅ Prisma users.id is BigInt
+    const userId = BigInt(id);
+
+    // ✅ Soft delete (status update only)
+    const updatedUser = await prisma.users.update({
+      where: { id: userId },
+      data: {
+        status,
+      },
+      select: {
+        id: true,
+        email: true,
+        status: true,
+        updated_at: true,
+      },
+    });
+
+    return reply.code(200).send({
+      message: `User status updated to ${status}`,
+      user: {
+        id: updatedUser.id.toString(), // BigInt → string
+        email: updatedUser.email,
+        status: updatedUser.status,
+        updatedAt: updatedUser.updated_at,
+      },
+    });
+  } catch (err: any) {
+    request.log.error(err, 'changeUserStatus failed');
+
+    return reply.code(500).send({
+      error: 'Failed to update user status',
+    });
+  }
+}

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 
 import {
   bulkCreateUsersFromExcel,
+  changeUserStatus,
   createInstitutionMemberHandler,
   createUserFlexible,
   getAvailableModulesHandler,
@@ -12,6 +13,7 @@ import {
   getRolesHierarchy,
   getUserAccessSummaryHandler,
   listUsers,
+
 } from '../controllers/institution.admin.controller';
 
 
@@ -27,4 +29,5 @@ export async function institutionAdminRoutes(fastify: FastifyInstance) {
   fastify.get('/institutionsadmin/access-summary/:userId', getUserAccessSummaryHandler);
   fastify.get('/institutionsadmin/user-management/users', listUsers);
   fastify.post('/users/bulk-upload', bulkCreateUsersFromExcel);
+  fastify.patch('/users/status/:id', changeUserStatus);
 }
