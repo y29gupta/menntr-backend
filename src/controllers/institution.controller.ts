@@ -443,9 +443,123 @@ export async function getPlanModulesHandler(
       })),
     });
   } catch (err) {
-    request.server.log.error({ err }, 'getPlanModulesHandler failed');
-    return reply.code(500).send({
-      error: 'Internal server error',
-    });
+    request.server.log.error({ err }, 'getInstitutionsHandler failed');
+    return reply.code(500).send({ error: 'Internal server error' });
   }
 }
+
+// interface InstitutionQuery {
+//   page?: number;
+//   limit?: number;
+//   status?: string;
+//   planId?: number;
+//   search?: string;
+// }
+
+// export async function getInstitutionsHandler(
+//   request: FastifyRequest<{ Querystring: InstitutionQuery }>,
+//   reply: FastifyReply
+// ) {
+//   try {
+//     const prisma = request.server.prisma;
+
+//     const { page = 1, limit = 10, status, planId, search } = request.query;
+
+//     const where: any = {};
+
+//     // Column filters
+//     if (status) where.status = status;
+//     if (planId) where.planId = planId;
+
+//     // Global search
+//     if (search) {
+//       where.OR = [
+//         { name: { contains: search, mode: 'insensitive' } },
+//         { code: { contains: search, mode: 'insensitive' } },
+//         { contactEmail: { contains: search, mode: 'insensitive' } },
+//       ];
+//     }
+
+//     const [data, meta] = await prisma.institution
+//       .paginate({
+//         where,
+//         select: {
+//           id: true,
+//           name: true,
+//           code: true,
+//           contactEmail: true,
+//           status: true,
+//           planId: true,
+//           createdAt: true,
+//           plan: {
+//             select: { id: true, name: true, code: true },
+//           },
+//         },
+//         orderBy: { createdAt: 'desc' },
+//       })
+//       .withPages({ page, limit });
+
+//     return reply.send({ data, meta });
+//   } catch (err) {
+//     request.log.error(err);
+//     return reply.code(500).send({ error: 'Internal server error' });
+//   }
+// }
+
+// export async function getPlanModulesHandler(request: FastifyRequest, reply: FastifyReply) {
+//   try {
+//     const parsed = GetPlanModulesParamsSchema.safeParse(request.params);
+
+//     if (!parsed.success) {
+//       return reply.code(400).send({
+//         error: 'Invalid plan id',
+//         details: parsed.error,
+//       });
+//     }
+
+//     const { planId } = parsed.data;
+//     const prisma = (request as any).prisma;
+
+//     const planModules: Prisma.plan_modulesGetPayload<{
+//       select: {
+//         plans: {
+//           select: { id: true; code: true; name: true };
+//         };
+//         modules: {
+//           select: { id: true; code: true; name: true; category: true };
+//         };
+//       };
+//     }>[] = await prisma.plan_modules.findMany({
+//       where: {
+//         plan_id: planId,
+//         included: true,
+//       },
+//       orderBy: {
+//         modules: { sort_order: 'asc' },
+//       },
+//       select: {
+//         plans: { select: { id: true, code: true, name: true } },
+//         modules: { select: { id: true, code: true, name: true, category: true } },
+//       },
+//     });
+
+//     if (planModules.length === 0) {
+//       return reply.code(404).send({ error: 'No modules found for this plan' });
+//     }
+
+//     return reply.code(200).send({
+//       planId: planModules[0].plans.id,
+//       planCode: planModules[0].plans.code,
+//       planName: planModules[0].plans.name,
+//       modules: planModules.map((pm) => ({
+//         id: pm.modules.id,
+//         code: pm.modules.code,
+//         name: pm.modules.name,
+//         category: pm.modules.category,
+//       })),
+//     });
+//   } catch (err) {
+//     request.server.log.error({ err }, 'getPlanModulesHandler failed');
+//     return reply.code(500).send({ error: 'Internal server error' });
+//   }
+// }
