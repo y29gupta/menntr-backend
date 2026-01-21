@@ -35,101 +35,225 @@ export async function getBatchById(
   return batch;
 }
 
+// export async function createBatch(
+//   prisma: PrismaClient,
+//   institution_id: number,
+//   input: any
+// ) {
+//   const academicYear = new Date(input.startDate).getFullYear();
+
+//   return prisma.batches.create({
+//     data: {
+//       // 🔐 Institution
+//       institution: {
+//         connect: { id: institution_id },
+//       },
+
+//       name: input.name,
+//       code: input.code,
+
+//       // 🔗 Category (optional)
+//       ...(input.categoryRoleId && {
+//         category_role: {
+//           connect: { id: input.categoryRoleId },
+//         },
+//       }),
+
+//       // 🔗 Department (REQUIRED)
+//       department_role: {
+//         connect: { id: input.departmentRoleId },
+//       },
+
+//       // 👤 Coordinator (optional)
+//       ...(input.coordinatorId && {
+//         coordinator: {
+//           connect: { id: BigInt(input.coordinatorId) },
+//         },
+//       }),
+
+//       academic_year: academicYear,
+//       start_date: input.startDate,
+//       end_date: input.endDate,
+
+//       is_active: input.isActive,
+//     },
+//   });
+// }
+
 export async function createBatch(
   prisma: PrismaClient,
   institution_id: number,
-  input: any
+  input: {
+    name: string;
+    code: string;
+    categoryRoleId?: number;
+    departmentRoleId: number;
+    coordinatorId?: string;
+    startDate?: string;
+    endDate?: string;
+    isActive: boolean;
+    sections: string[];
+  }
 ) {
-  const academicYear = new Date(input.startDate).getFullYear();
+  return prisma.$transaction(async (tx) => {
+    const academicYear = input.startDate
+      ? new Date(input.startDate).getFullYear()
+      : new Date().getFullYear();
 
-  return prisma.batches.create({
-    data: {
-      // 🔐 Institution
-      institution: {
-        connect: { id: institution_id },
-      },
+    const batch = await tx.batches.create({
+      data: {
+        institution: { connect: { id: institution_id } },
+        name: input.name,
+        code: input.code,
+        academic_year: academicYear,
+        start_date: input.startDate,
+        end_date: input.endDate,
+        is_active: input.isActive,
 
-      name: input.name,
-      code: input.code,
+        ...(input.categoryRoleId && {
+          category_role: { connect: { id: input.categoryRoleId } },
+        }),
 
-      // 🔗 Category (optional)
-      ...(input.categoryRoleId && {
-        category_role: {
-          connect: { id: input.categoryRoleId },
+        department_role: {
+          connect: { id: input.departmentRoleId },
         },
-      }),
 
-      // 🔗 Department (REQUIRED)
-      department_role: {
-        connect: { id: input.departmentRoleId },
+        ...(input.coordinatorId && {
+          coordinator: { connect: { id: BigInt(input.coordinatorId) } },
+        }),
       },
+    });
 
-      // 👤 Coordinator (optional)
-      ...(input.coordinatorId && {
-        coordinator: {
-          connect: { id: BigInt(input.coordinatorId) },
-        },
-      }),
+    // ✅ Create sections
+    await tx.batch_sections.createMany({
+      data: input.sections.map((name, index) => ({
+        batch_id: batch.id,
+        name,
+        sort_order: index,
+      })),
+    });
 
-      academic_year: academicYear,
-      start_date: input.startDate,
-      end_date: input.endDate,
-
-      is_active: input.isActive,
-    },
+    return batch;
   });
 }
 
 
+// export async function updateBatch(
+//   prisma: PrismaClient,
+//   id: number,
+//   institution_id: number,
+//   input: any
+// ) {
+//   const batch = await prisma.batches.findFirst({
+//     where: { id, institution_id },
+//   });
 
+//   if (!batch) throw new NotFoundError('Batch not found');
+
+//   const academicYear = input.startDate
+//     ? new Date(input.startDate).getFullYear()
+//     : undefined;
+
+//   return prisma.batches.update({
+//     where: { id },
+//     data: {
+//       ...(input.name && { name: input.name }),
+//       ...(input.code && { code: input.code }),
+
+//       ...(input.categoryRoleId !== undefined && {
+//         category_role: input.categoryRoleId
+//           ? { connect: { id: input.categoryRoleId } }
+//           : { disconnect: true },
+//       }),
+
+//       ...(input.departmentRoleId && {
+//         department_role: {
+//           connect: { id: input.departmentRoleId },
+//         },
+//       }),
+
+//       ...(input.coordinatorId !== undefined && {
+//         coordinator: input.coordinatorId
+//           ? { connect: { id: BigInt(input.coordinatorId) } }
+//           : { disconnect: true },
+//       }),
+
+//       ...(input.startDate && { start_date: input.startDate }),
+//       ...(input.endDate && { end_date: input.endDate }),
+//       ...(academicYear && { academic_year: academicYear }),
+
+//       ...(input.isActive !== undefined && {
+//         is_active: input.isActive,
+//       }),
+//     },
+//   });
+// }
 export async function updateBatch(
   prisma: PrismaClient,
-  id: number,
+  batchId: number,
   institution_id: number,
-  input: any
+  input: {
+    name?: string;
+    code?: string;
+    categoryRoleId?: number | null;
+    departmentRoleId?: number;
+    coordinatorId?: string | null;
+    startDate?: string;
+    endDate?: string;
+    isActive?: boolean;
+    sections?: string[];
+  }
 ) {
-  const batch = await prisma.batches.findFirst({
-    where: { id, institution_id },
-  });
+  return prisma.$transaction(async (tx) => {
+    const batch = await tx.batches.findFirst({
+      where: { id: batchId, institution_id },
+    });
 
-  if (!batch) throw new NotFoundError('Batch not found');
+    if (!batch) throw new Error('Batch not found');
 
-  const academicYear = input.startDate
-    ? new Date(input.startDate).getFullYear()
-    : undefined;
+    await tx.batches.update({
+      where: { id: batchId },
+      data: {
+        ...(input.name && { name: input.name }),
+        ...(input.code && { code: input.code }),
+        ...(input.startDate && { start_date: input.startDate }),
+        ...(input.endDate && { end_date: input.endDate }),
+        ...(input.isActive !== undefined && { is_active: input.isActive }),
 
-  return prisma.batches.update({
-    where: { id },
-    data: {
-      ...(input.name && { name: input.name }),
-      ...(input.code && { code: input.code }),
+        ...(input.categoryRoleId !== undefined && {
+          category_role: input.categoryRoleId
+            ? { connect: { id: input.categoryRoleId } }
+            : { disconnect: true },
+        }),
 
-      ...(input.categoryRoleId !== undefined && {
-        category_role: input.categoryRoleId
-          ? { connect: { id: input.categoryRoleId } }
-          : { disconnect: true },
-      }),
+        ...(input.departmentRoleId && {
+          department_role: { connect: { id: input.departmentRoleId } },
+        }),
 
-      ...(input.departmentRoleId && {
-        department_role: {
-          connect: { id: input.departmentRoleId },
-        },
-      }),
+        ...(input.coordinatorId !== undefined && {
+          coordinator: input.coordinatorId
+            ? { connect: { id: BigInt(input.coordinatorId) } }
+            : { disconnect: true },
+        }),
+      },
+    });
 
-      ...(input.coordinatorId !== undefined && {
-        coordinator: input.coordinatorId
-          ? { connect: { id: BigInt(input.coordinatorId) } }
-          : { disconnect: true },
-      }),
+    // 🔥 Replace sections safely
+    if (input.sections) {
+      await tx.batch_sections.deleteMany({
+        where: { batch_id: batchId },
+      });
 
-      ...(input.startDate && { start_date: input.startDate }),
-      ...(input.endDate && { end_date: input.endDate }),
-      ...(academicYear && { academic_year: academicYear }),
+      await tx.batch_sections.createMany({
+        data: input.sections.map((name, index) => ({
+          batch_id: batchId,
+          name,
+          sort_order: index,
+        })),
+      });
+    }
 
-      ...(input.isActive !== undefined && {
-        is_active: input.isActive,
-      }),
-    },
+    return { success: true };
   });
 }
 

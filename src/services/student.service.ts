@@ -271,26 +271,35 @@ export async function getBatches(
   institutionId: number,
   departmentRoleId: number
 ) {
+  const batches = await prisma.batches.findMany({
+    where: {
+      institution_id: institutionId,
+      department_role_id: departmentRoleId,
+      is_active: true,
+    },
+    include: {
+      sections: {
+        orderBy: { sort_order: 'asc' },
+      },
+    },
+    orderBy: [{ academic_year: 'desc' }, { name: 'asc' }],
+  });
+
   return {
-    batches: (
-      await prisma.batches.findMany({
-        where: {
-          institution_id: institutionId,
-          department_role_id: {
-            equals: departmentRoleId, // ✅ explicit
-          },
-          is_active: true,
-        },
-        orderBy: [{ academic_year: 'desc' }, { name: 'asc' }],
-      })
-    ).map((b) => ({
+    batches: batches.map((b) => ({
       id: b.id,
       name: b.name,
       academic_year: b.academic_year,
-      section: b.code,
+
+      // ✅ NEW: sections array
+      sections: b.sections.map((s) => ({
+        id: s.id,
+        name: s.name,
+      })),
     })),
   };
 }
+
 
 /* -----------------------------
    SAVE ACADEMIC DETAILS

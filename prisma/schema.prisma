@@ -243,7 +243,7 @@ model batches {
   coordinator        users?               @relation(fields: [coordinator_id], references: [id])
   department_role    roles                @relation("BatchDepartmentRole", fields: [department_role_id], references: [id])
   institution        institutions         @relation(fields: [institution_id], references: [id])
-
+  sections batch_sections[]
   @@unique([institution_id, code])
 }
 
@@ -306,6 +306,17 @@ model question_options {
   sort_order   Int           @default(0)
   created_at   DateTime      @default(now())
   question     question_bank @relation(fields: [question_id], references: [id], onDelete: Cascade)
+}
+model batch_sections {
+  id         Int      @id @default(autoincrement())
+  batch_id   Int
+  name       String
+  sort_order Int
+  created_at DateTime @default(now())
+
+  batch batches @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+
+  @@unique([batch_id, name])
 }
 
 model assessments {
