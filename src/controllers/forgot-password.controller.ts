@@ -92,7 +92,7 @@ export async function sendForgotPasswordEmail(request: FastifyRequest, reply: Fa
     data: {
       user_id: user.id,
       token_hash: hash,
-      type: 'email_verification',
+      type: 'password_reset',
       expires_at: expiresAt,
     },
   });
