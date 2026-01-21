@@ -174,9 +174,9 @@ export async function generateInviteHandler(request: FastifyRequest, reply: Fast
     if (!currentUser?.sub) {
       throw new UnauthorizedError();
     }
-    if (!currentUser.permissions?.includes('user:invite')) {
-      throw new ForbiddenError('Insufficient permissions');
-    }
+    // if (!currentUser.permissions?.includes('user:invite')) {
+    //   throw new ForbiddenError('Insufficient permissions');
+    // }
     const parsed = InviteSchema.safeParse(request.body);
     if (!parsed.success) {
       throw new ValidationError('Invalid request', parsed.error.issues);
