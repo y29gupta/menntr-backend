@@ -188,17 +188,17 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
 
 
   await prisma.$transaction([
-    prisma.user.update({
+    prisma.users.update({
       where: { id: record.user_id },
       data: {
-        password_hash:passwordHash,
+        password_hash: passwordHash,
         must_change_password: false,
         status: 'active',
       },
     }),
     prisma.auth_tokens.updateMany({
       where: {
-        user_id: record.userId,
+        user_id: record.user_id,
         type: 'password_reset',
       },
       data: { used_at: new Date() },
@@ -207,9 +207,9 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
 
   //  Serialize roles
   const roles = Serializer.serializeRoles(record.user);
-
+  console.log("harish reset password", record)
   const jwtToken = AuthService.signJwt({
-    sub: record.userId.toString(),
+    sub: record.user_id.toString(),
     email: record.user.email,
     roles: roles.map((r: any) => r.name),
   });
@@ -221,7 +221,7 @@ export async function resetPassword(request: FastifyRequest, reply: FastifyReply
   await emailService.sendPasswordChangedNotification(email);
 
   logger.audit({
-    user_id: record.userId.toString(),
+    user_id: record.user_id.toString(),
     action: 'RESET_PASSWORD',
     resource: 'auth',
     status: 'success',
