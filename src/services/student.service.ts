@@ -41,146 +41,150 @@ export async function listStudents(
     page?: number;
     limit?: number;
     search?: string;
+
+    // column filters
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    status?: string;
+    roll_number?: string;
+    section?: string;
+    category?: string;
+    department?: string;
+    academic_year?: number;
+
     batch_id?: number;
     department_role_id?: number;
-    status?: string;
   }
 ) {
   const { page, limit, skip } = getPagination(params);
 
-  /* --------------------------------
-     STATUS FROM GLOBAL SEARCH (SAFE)
-  --------------------------------- */
-  const STATUS_KEYWORDS = ['active', 'inactive', 'suspended', 'deleted'] as const;
-
-  const normalizedSearch = params.search?.trim().toLowerCase();
-
-  const statusFromSearch =
-    normalizedSearch && STATUS_KEYWORDS.includes(normalizedSearch as any)
-      ? (normalizedSearch as string)
-      : undefined;
-
-  /* --------------------------------
-     BASE WHERE (UNCHANGED LOGIC)
-  --------------------------------- */
   const where: any = {
     institution_id: params.institution_id,
-
-    // ✅ priority: explicit param > inferred > default
-    // status: params.status ?? statusFromSearch ?? 'active',
-
-    user_roles: {
-      some: { role: { name: 'Student' } },
-    },
+    user_roles: { some: { role: { name: 'Student' } } },
   };
-if (params.status) {
-  // explicit query param always wins
-  where.status = params.status;
-} else if (statusFromSearch) {
-  // inferred from global search
-  where.status = statusFromSearch;
-}
-  if (params.batch_id) {
-    where.batchStudents = {
-      some: { batch_id: params.batch_id },
-    };
-  }
 
-  if (params.department_role_id) {
+  /* ---------------- COLUMN FILTERS ---------------- */
+  if (params.status) where.status = params.status;
+  if (params.first_name) where.first_name = { contains: params.first_name, mode: 'insensitive' };
+  if (params.last_name) where.last_name = { contains: params.last_name, mode: 'insensitive' };
+  if (params.email) where.email = { contains: params.email, mode: 'insensitive' };
+
+  if (
+    params.roll_number ||
+    params.section ||
+    params.category ||
+    params.department ||
+    params.academic_year ||
+    params.batch_id ||
+    params.department_role_id
+  ) {
     where.batchStudents = {
       some: {
-        batch: {
-          department_role_id: params.department_role_id,
-        },
+        ...(params.roll_number && {
+          roll_number: { contains: params.roll_number, mode: 'insensitive' },
+        }),
+        ...(params.batch_id && { batch_id: params.batch_id }),
+        ...(params.department_role_id && {
+          batch: { department_role_id: params.department_role_id },
+        }),
+        ...(params.academic_year && {
+          batch: { academic_year: params.academic_year },
+        }),
+        ...(params.section && {
+          batch: {
+            sections: {
+              some: { name: { contains: params.section, mode: 'insensitive' } },
+            },
+          },
+        }),
+        ...(params.department && {
+          batch: {
+            department_role: {
+              name: { contains: params.department, mode: 'insensitive' },
+            },
+          },
+        }),
+        ...(params.category && {
+          batch: {
+            category_role: {
+              name: { contains: params.category, mode: 'insensitive' },
+            },
+          },
+        }),
       },
     };
   }
 
-  /* --------------------------------
-     GLOBAL SEARCH (TEXT ONLY)
-     ⛔ skip if search was a status
-  --------------------------------- */
-  if (params.search && !statusFromSearch) {
+  /* ---------------- GLOBAL SEARCH ---------------- */
+  if (params.search) {
     const search = params.search;
 
-    where.OR = [
-      // Student name
-      { first_name: { contains: search, mode: 'insensitive' } },
-      { last_name: { contains: search, mode: 'insensitive' } },
-
-      // Email
-      { email: { contains: search, mode: 'insensitive' } },
-
-      // Roll number
+    where.AND = [
+      ...(where.AND || []),
       {
-        batchStudents: {
-          some: {
-            roll_number: { contains: search, mode: 'insensitive' },
-          },
-        },
-      },
+        OR: [
+          { first_name: { contains: search, mode: 'insensitive' } },
+          { last_name: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { status: { equals: search as any } },
 
-      // Section name
-      {
-        batchStudents: {
-          some: {
-            batch: {
-              sections: {
-                some: {
-                  name: { contains: search, mode: 'insensitive' },
-                },
+          {
+            batchStudents: {
+              some: {
+                roll_number: { contains: search, mode: 'insensitive' },
               },
             },
           },
-        },
-      },
-
-      // Department name
-      {
-        batchStudents: {
-          some: {
-            batch: {
-              department_role: {
-                name: { contains: search, mode: 'insensitive' },
-              },
-            },
-          },
-        },
-      },
-
-      // Category name
-      {
-        batchStudents: {
-          some: {
-            batch: {
-              category_role: {
-                name: { contains: search, mode: 'insensitive' },
-              },
-            },
-          },
-        },
-      },
-
-      // Academic year (numeric search)
-      ...(isNaN(Number(search))
-        ? []
-        : [
-            {
-              batchStudents: {
-                some: {
-                  batch: {
-                    academic_year: Number(search),
+          {
+            batchStudents: {
+              some: {
+                batch: {
+                  sections: {
+                    some: { name: { contains: search, mode: 'insensitive' } },
                   },
                 },
               },
             },
-          ]),
+          },
+          {
+            batchStudents: {
+              some: {
+                batch: {
+                  department_role: {
+                    name: { contains: search, mode: 'insensitive' },
+                  },
+                },
+              },
+            },
+          },
+          {
+            batchStudents: {
+              some: {
+                batch: {
+                  category_role: {
+                    name: { contains: search, mode: 'insensitive' },
+                  },
+                },
+              },
+            },
+          },
+          ...(isNaN(Number(search))
+            ? []
+            : [
+                {
+                  batchStudents: {
+                    some: {
+                      batch: { academic_year: Number(search) },
+                    },
+                  },
+                },
+              ]),
+        ],
+      },
     ];
   }
 
-  /* --------------------------------
-     QUERY (UNCHANGED)
-  --------------------------------- */
   const [students, total] = await Promise.all([
     prisma.users.findMany({
       where,
@@ -189,24 +193,17 @@ if (params.status) {
       orderBy: { created_at: 'desc' },
       include: {
         batchStudents: {
-          where: {
-            ...(params.batch_id && { batch_id: params.batch_id }),
-          },
           include: {
             batch: {
               include: {
                 category_role: true,
                 department_role: true,
-                sections: {
-                  orderBy: { sort_order: 'asc' },
-                },
+                sections: true,
               },
             },
           },
         },
-        assessment_attempts: {
-          select: { percentage: true },
-        },
+        assessment_attempts: { select: { percentage: true } },
       },
     }),
     prisma.users.count({ where }),
@@ -215,13 +212,6 @@ if (params.status) {
   const rows = students.map((s) => {
     const batch = s.batchStudents[0];
     const attempts = s.assessment_attempts;
-
-    const avgScore =
-      attempts.length > 0
-        ? Math.round(
-            attempts.reduce((sum, a) => sum + Number(a.percentage || 0), 0) / attempts.length
-          )
-        : null;
 
     return {
       id: s.id.toString(),
@@ -232,10 +222,15 @@ if (params.status) {
       department: batch?.batch.department_role?.name ?? '-',
       batch: batch ? `${batch.batch.academic_year}` : '-',
       section: batch?.section_id
-        ? (batch.batch.sections.find((s) => s.id === batch.section_id)?.name ?? '-')
+        ? (batch.batch.sections.find((x) => x.id === batch.section_id)?.name ?? '-')
         : '-',
       assessmentsTaken: attempts.length,
-      averageScore: avgScore,
+      averageScore:
+        attempts.length > 0
+          ? Math.round(
+              attempts.reduce((s, a) => s + Number(a.percentage || 0), 0) / attempts.length
+            )
+          : null,
       status: s.status,
       lastLogin: s.last_login_at ? timeAgo(s.last_login_at) : '-',
     };
@@ -243,6 +238,7 @@ if (params.status) {
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
+
 
 
 /* -----------------------------

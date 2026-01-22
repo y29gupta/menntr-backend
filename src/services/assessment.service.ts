@@ -283,67 +283,59 @@ export async function listAssessments(
   params: {
     institution_id: number;
     tab: 'active' | 'draft' | 'closed';
-    page?:number;
+    page?: number;
     limit?: number;
-    search?: number;
+    search?: string;
+    status?: string;
+    category?: string;
   }
 ) {
   const { page, limit, skip } = getPagination(params);
-  let statusFilter: any = {};
 
-  if (params.tab === 'active') {
-    statusFilter = { status: { in: ['published', 'active'] } };
-  }
-  if (params.tab === 'draft') {
-    statusFilter = { status: 'draft' };
-  }
-  if (params.tab === 'closed') {
-    statusFilter = { status: { in: ['closed', 'archived'] } };
-  }
+  let statusFilter: any = {};
+  if (params.tab === 'active') statusFilter = { status: { in: ['published', 'active'] } };
+  if (params.tab === 'draft') statusFilter = { status: 'draft' };
+  if (params.tab === 'closed') statusFilter = { status: { in: ['closed', 'archived'] } };
 
   const where: any = {
     institution_id: params.institution_id,
     is_deleted: false,
     ...statusFilter,
+  };
+
+  if (params.status) where.status = params.status;
+
+  if (params.search) {
+    where.OR = [
+      { title: { contains: params.search, mode: 'insensitive' } },
+      { metadata: { path: ['category'], string_contains: params.search } },
+      {
+        batches: {
+          some: {
+            batch: { name: { contains: params.search, mode: 'insensitive' } },
+          },
+        },
+      },
+    ];
   }
-  const [assessments, total] = await Promise.all([
+
+  const [rows, total] = await Promise.all([
     prisma.assessments.findMany({
       where,
       skip,
       take: limit,
       include: {
         questions: true,
-        batches: {
-          include: {
-            batch: true,
-          },
-        },
+        batches: { include: { batch: true } },
       },
-      orderBy: {
-        updated_at: 'desc',
-      },
+      orderBy: { updated_at: 'desc' },
     }),
     prisma.assessments.count({ where }),
   ]);
 
-  const rows = assessments.map((a) => {
-    const metadata = a.metadata as AssessmentMetaData | null;
-
-    return {
-      id: a.id.toString(),
-      assessmentName: a.title,
-      category: metadata?.category ?? '-',
-      departmentBatch: a.batches.length > 0 ? a.batches.map((b) => b.batch.name).join(', ') : '-',
-      questions: a.questions.length,
-      publishedOn: a.published_at ? a.published_at.toISOString().split('T')[0] : '-',
-      expiryOn: a.end_time ? a.end_time.toISOString().split('T')[0] : '-',
-      lastEdited: a.updated_at ? timeAgo(a.updated_at) : '-',
-      status: a.status,
-    };
-  });
-
   return buildPaginatedResponse(rows, total, page, limit);
 }
+
 
 export async function getAssessment(prisma: PrismaClient, assessmentId: bigint) {
   return prisma.assessments.findUnique({

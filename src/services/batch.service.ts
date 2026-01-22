@@ -8,13 +8,43 @@ export async function listBatches(
     institution_id: number;
     page?: number;
     limit?: number;
+    search?: string;
+    name?: string;
+    category?: string;
+    department?: string;
+    coordinator?: string;
+    status?: boolean;
   }
 ) {
   const { page, limit, skip } = getPagination(params);
 
+  const where: any = { institution_id: params.institution_id };
+
+  if (params.status !== undefined) where.is_active = params.status;
+
+  if (params.name) where.name = { contains: params.name, mode: 'insensitive' };
+
+  if (params.search) {
+    where.OR = [
+      { name: { contains: params.search, mode: 'insensitive' } },
+      { category_role: { name: { contains: params.search, mode: 'insensitive' } } },
+      { department_role: { name: { contains: params.search, mode: 'insensitive' } } },
+      {
+        coordinator: {
+          OR: [
+            { first_name: { contains: params.search, mode: 'insensitive' } },
+            { last_name: { contains: params.search, mode: 'insensitive' } },
+          ],
+        },
+      },
+    ];
+  }
+
   const [rows, total] = await Promise.all([
     prisma.batches.findMany({
-      where: { institution_id: params.institution_id },
+      where,
+      skip,
+      take: limit,
       include: {
         category_role: true,
         department_role: true,
@@ -22,16 +52,13 @@ export async function listBatches(
         students: true,
       },
       orderBy: { created_at: 'desc' },
-      skip,
-      take: limit,
     }),
-    prisma.batches.count({
-      where: { institution_id: params.institution_id },
-    }),
+    prisma.batches.count({ where }),
   ]);
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
+
 
 
 export async function getBatchById(

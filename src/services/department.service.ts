@@ -31,37 +31,61 @@ export async function getDepartments(
     page?: number;
     limit?: number;
     search?: string;
+    name?: string;
+    code?: string;
+    category?: string;
+    hod?: string;
   }
 ) {
   const { page, limit, skip } = getPagination(params);
 
-  const where = {
+  const where: any = {
     institution_id: params.institution_id,
     role_hierarchy_id: DEPARTMENT_LEVEL,
     is_system_role: false,
-    ...(params.search && {
-      name: { contains: params.search, mode: Prisma.QueryMode.insensitive, },
-    }),
   };
+
+  if (params.name) where.name = { contains: params.name, mode: Prisma.QueryMode.insensitive };
+  if (params.code) where.code = { contains: params.code, mode: Prisma.QueryMode.insensitive };
+
+  if (params.search) {
+    where.OR = [
+      { name: { contains: params.search, mode: Prisma.QueryMode.insensitive } },
+      { code: { contains: params.search, mode: Prisma.QueryMode.insensitive } },
+      { parent: { name: { contains: params.search, mode: Prisma.QueryMode.insensitive } } },
+      {
+        user_roles: {
+          some: {
+            user: {
+              OR: [
+                { first_name: { contains: params.search, mode: 'insensitive' } },
+                { last_name: { contains: params.search, mode: 'insensitive' } },
+                { email: { contains: params.search, mode: 'insensitive' } },
+              ],
+            },
+          },
+        },
+      },
+    ];
+  }
 
   const [rows, total] = await Promise.all([
     prisma.roles.findMany({
       where,
-      include: {
-        parent: true, // category
-        user_roles: {
-          include: { user: true }, // HOD
-        },
-      },
-      orderBy: { created_at: 'desc' },
       skip,
       take: limit,
+      include: {
+        parent: true,
+        user_roles: { include: { user: true } },
+      },
+      orderBy: { created_at: 'desc' },
     }),
     prisma.roles.count({ where }),
   ]);
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
+
 
 
 
