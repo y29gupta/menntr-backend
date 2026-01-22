@@ -556,3 +556,18 @@ enum PermissionOverrideType {
   grant
   revoke
 }
+
+
+model institution_members {
+  id            Int      @id @default(autoincrement())
+  first_name    String
+  last_name     String
+  email         String   @unique
+  phone_number  String
+  profile_photo String?
+
+  active        Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+}
+
