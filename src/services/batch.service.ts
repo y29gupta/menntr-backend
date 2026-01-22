@@ -9,6 +9,8 @@ export async function listBatches(
     page?: number;
     limit?: number;
     search?: string;
+
+    // column filters
     name?: string;
     category?: string;
     department?: string;
@@ -18,27 +20,95 @@ export async function listBatches(
 ) {
   const { page, limit, skip } = getPagination(params);
 
-  const where: any = { institution_id: params.institution_id };
+  /* ---------------- STATUS FROM GLOBAL SEARCH ---------------- */
+  const normalizedSearch = params.search?.trim().toLowerCase();
 
-  if (params.status !== undefined) where.is_active = params.status;
+  let statusFromSearch: boolean | undefined;
+  if (normalizedSearch === 'active') statusFromSearch = true;
+  if (normalizedSearch === 'inactive') statusFromSearch = false;
 
-  if (params.name) where.name = { contains: params.name, mode: 'insensitive' };
+  const where: any = {
+    institution_id: params.institution_id,
+    AND: [],
+  };
 
-  if (params.search) {
-    where.OR = [
-      { name: { contains: params.search, mode: 'insensitive' } },
-      { category_role: { name: { contains: params.search, mode: 'insensitive' } } },
-      { department_role: { name: { contains: params.search, mode: 'insensitive' } } },
-      {
-        coordinator: {
-          OR: [
-            { first_name: { contains: params.search, mode: 'insensitive' } },
-            { last_name: { contains: params.search, mode: 'insensitive' } },
-          ],
-        },
-      },
-    ];
+  /* ---------------- COLUMN FILTERS (PRIORITY) ---------------- */
+
+  if (params.status !== undefined) {
+    where.AND.push({ is_active: params.status });
+  } else if (statusFromSearch !== undefined) {
+    // ✅ global search fallback
+    where.AND.push({ is_active: statusFromSearch });
   }
+
+  if (params.name) {
+    where.AND.push({
+      name: { contains: params.name, mode: 'insensitive' },
+    });
+  }
+
+  if (params.category) {
+    where.AND.push({
+      category_role: {
+        name: { contains: params.category, mode: 'insensitive' },
+      },
+    });
+  }
+
+  if (params.department) {
+    where.AND.push({
+      department_role: {
+        name: { contains: params.department, mode: 'insensitive' },
+      },
+    });
+  }
+
+  if (params.coordinator) {
+    where.AND.push({
+      coordinator: {
+        OR: [
+          { first_name: { contains: params.coordinator, mode: 'insensitive' } },
+          { last_name: { contains: params.coordinator, mode: 'insensitive' } },
+        ],
+      },
+    });
+  }
+
+  /* ---------------- GLOBAL SEARCH (TEXT FIELDS ONLY) ---------------- */
+
+  if (params.search && statusFromSearch === undefined) {
+    const search = params.search;
+
+    where.AND.push({
+      OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+
+        {
+          category_role: {
+            name: { contains: search, mode: 'insensitive' },
+          },
+        },
+
+        {
+          department_role: {
+            name: { contains: search, mode: 'insensitive' },
+          },
+        },
+
+        {
+          coordinator: {
+            OR: [
+              { first_name: { contains: search, mode: 'insensitive' } },
+              { last_name: { contains: search, mode: 'insensitive' } },
+            ],
+          },
+        },
+      ],
+    });
+  }
+
+  // 🔒 Prisma safety
+  if (where.AND.length === 0) delete where.AND;
 
   const [rows, total] = await Promise.all([
     prisma.batches.findMany({
@@ -58,6 +128,8 @@ export async function listBatches(
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
+
+
 
 
 

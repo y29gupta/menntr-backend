@@ -23,12 +23,28 @@ export async function listBatchHandler(req: FastifyRequest, reply: FastifyReply)
 
   if (!user?.institution_id) throw new ForbiddenError('No institution');
 
-  const { page = 1, limit = 10 } = req.query as any;
+  const {
+    page = 1,
+    limit = 10,
+    search,
+    name,
+    category,
+    department,
+    coordinator,
+    status,
+  } = req.query as any;
 
   const result = await listBatches(prisma, {
     institution_id: user.institution_id,
     page: Number(page),
     limit: Number(limit),
+
+    search,
+    name,
+    category,
+    department,
+    coordinator,
+    status: status !== undefined ? status === 'true' : undefined,
   });
 
   const data = result.data.map((b) => {
