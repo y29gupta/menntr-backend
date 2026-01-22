@@ -73,7 +73,13 @@ export async function listStudents(
       some: { role: { name: 'Student' } },
     },
   };
-
+if (params.status) {
+  // explicit query param always wins
+  where.status = params.status;
+} else if (statusFromSearch) {
+  // inferred from global search
+  where.status = statusFromSearch;
+}
   if (params.batch_id) {
     where.batchStudents = {
       some: { batch_id: params.batch_id },
