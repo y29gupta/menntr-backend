@@ -570,31 +570,3 @@ model institution_members {
   updated_at    DateTime @updatedAt
 }
 
-
-enum PermissionOverrideType {
-  grant
-  revoke
-}
-
-
-model user_permission_overrides {
-  id             Int      @id @default(autoincrement())
-  user_id        BigInt
-  permission_id  Int
-  override_type  PermissionOverrideType
-  reason         String?
-  granted_by     BigInt?
-  granted_at     DateTime @default(now()) @db.Timestamp(3)
-  expires_at     DateTime? @db.Timestamp(3)
-  revoked_at     DateTime? @db.Timestamp(3)
-  revoked_by     BigInt?
-
-  user        users       @relation("UserPermissionOverrides_User", fields: [user_id], references: [id], onDelete: Cascade)
-  permission permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade)
-
-  grantedBy   users?      @relation("UserPermissionOverrides_GrantedBy", fields: [granted_by], references: [id], onDelete: SetNull)
-  revokedBy   users?      @relation("UserPermissionOverrides_RevokedBy", fields: [revoked_by], references: [id], onDelete: SetNull)
-
-  @@unique([user_id, permission_id], name: "user_permission_overrides_unique")
-  @@map("user_permission_overrides")
-}
