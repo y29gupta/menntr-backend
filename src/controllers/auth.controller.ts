@@ -304,6 +304,8 @@ export async function consumeInviteHandler(request: FastifyRequest, reply: Fasti
 
   const jwt = AuthService.signJwt({
     sub: tokenRec.user.id.toString(),
+    email: tokenRec.user.email,
+    institution_id: tokenRec.user.institution_id ?? undefined,
     roles: roles.map((r: any) => r.name),
     permissions,
     must_change_password: tokenRec.user.must_change_password,

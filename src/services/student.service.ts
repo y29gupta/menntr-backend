@@ -3,6 +3,8 @@ import { timeAgo } from '../utils/time';
 import { ConflictError } from '../utils/errors';
 import { getPagination, buildPaginatedResponse } from '../utils/pagination';
 import { buildGlobalSearch } from '../utils/search';
+import { triggerStudentInvite } from './student-invite.helper';
+import { EmailService } from './email';
 /* -----------------------------
    META (Filters)
 ------------------------------ */
@@ -46,44 +48,133 @@ export async function listStudents(
 ) {
   const { page, limit, skip } = getPagination(params);
 
+  /* --------------------------------
+     STATUS FROM GLOBAL SEARCH (SAFE)
+  --------------------------------- */
+  const STATUS_KEYWORDS = ['active', 'inactive', 'suspended', 'deleted'] as const;
+
+  const normalizedSearch = params.search?.trim().toLowerCase();
+
+  const statusFromSearch =
+    normalizedSearch && STATUS_KEYWORDS.includes(normalizedSearch as any)
+      ? (normalizedSearch as string)
+      : undefined;
+
+  /* --------------------------------
+     BASE WHERE (UNCHANGED LOGIC)
+  --------------------------------- */
   const where: any = {
     institution_id: params.institution_id,
-    status: params.status ?? 'active',
+
+    // ✅ priority: explicit param > inferred > default
+    // status: params.status ?? statusFromSearch ?? 'active',
+
     user_roles: {
       some: { role: { name: 'Student' } },
     },
   };
+
   if (params.batch_id) {
     where.batchStudents = {
       some: { batch_id: params.batch_id },
     };
   }
-if (params.department_role_id) {
-  where.batchStudents = {
-    some: {
-      batch: {
-        department_role_id: params.department_role_id,
-      },
-    },
-  };
-}
 
-if (params.search) {
-  where.OR = [
-    { first_name: { contains: params.search, mode: 'insensitive' } },
-    { last_name: { contains: params.search, mode: 'insensitive' } },
-    { email: { contains: params.search, mode: 'insensitive' } },
-    {
-      batchStudents: {
-        some: {
-          roll_number: { contains: params.search, mode: 'insensitive' },
+  if (params.department_role_id) {
+    where.batchStudents = {
+      some: {
+        batch: {
+          department_role_id: params.department_role_id,
         },
       },
-    },
-  ];
-}
+    };
+  }
 
+  /* --------------------------------
+     GLOBAL SEARCH (TEXT ONLY)
+     ⛔ skip if search was a status
+  --------------------------------- */
+  if (params.search && !statusFromSearch) {
+    const search = params.search;
 
+    where.OR = [
+      // Student name
+      { first_name: { contains: search, mode: 'insensitive' } },
+      { last_name: { contains: search, mode: 'insensitive' } },
+
+      // Email
+      { email: { contains: search, mode: 'insensitive' } },
+
+      // Roll number
+      {
+        batchStudents: {
+          some: {
+            roll_number: { contains: search, mode: 'insensitive' },
+          },
+        },
+      },
+
+      // Section name
+      {
+        batchStudents: {
+          some: {
+            batch: {
+              sections: {
+                some: {
+                  name: { contains: search, mode: 'insensitive' },
+                },
+              },
+            },
+          },
+        },
+      },
+
+      // Department name
+      {
+        batchStudents: {
+          some: {
+            batch: {
+              department_role: {
+                name: { contains: search, mode: 'insensitive' },
+              },
+            },
+          },
+        },
+      },
+
+      // Category name
+      {
+        batchStudents: {
+          some: {
+            batch: {
+              category_role: {
+                name: { contains: search, mode: 'insensitive' },
+              },
+            },
+          },
+        },
+      },
+
+      // Academic year (numeric search)
+      ...(isNaN(Number(search))
+        ? []
+        : [
+            {
+              batchStudents: {
+                some: {
+                  batch: {
+                    academic_year: Number(search),
+                  },
+                },
+              },
+            },
+          ]),
+    ];
+  }
+
+  /* --------------------------------
+     QUERY (UNCHANGED)
+  --------------------------------- */
   const [students, total] = await Promise.all([
     prisma.users.findMany({
       where,
@@ -112,7 +203,7 @@ if (params.search) {
         },
       },
     }),
-    prisma.users.count({ where }), //
+    prisma.users.count({ where }),
   ]);
 
   const rows = students.map((s) => {
@@ -146,6 +237,7 @@ if (params.search) {
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
+
 
 /* -----------------------------
    CREATE STUDENT
@@ -530,6 +622,9 @@ export async function saveAdditionalInfo(
       student_id: input.student_id,
       batch: { institution_id: input.institution_id },
     },
+    include: {
+      student: true,
+    }
   });
 
   if (!batchStudent) {
@@ -559,7 +654,8 @@ export async function saveAdditionalInfo(
 
   return {
     success: true,
-    message: 'Additional information saved successfully',
+    // message: 'Additional information saved successfully',
+    student: batchStudent.student,
   };
 }
 
@@ -618,7 +714,8 @@ export async function deleteStudent(
   };
 }
 
-export async function getStudent(
+export async function 
+getStudent(
   prisma: PrismaClient,
   input: {
     student_id: bigint;
@@ -723,11 +820,12 @@ export async function updateStudent(
     throw new ConflictError('Student not found');
   }
 
-  // Email uniqueness check
-  if (input.email && input.email !== student.email) {
+  const emailChanged = input.email && input.email.toLowerCase() !== student.email.toLowerCase();
+
+  if (emailChanged) {
     const exists = await prisma.users.findFirst({
       where: {
-        email: input.email,
+        email: input.email!,
         institution_id: input.institution_id,
         id: { not: input.student_id },
       },
@@ -738,7 +836,7 @@ export async function updateStudent(
     }
   }
 
-  await prisma.users.update({
+  const updated = await prisma.users.update({
     where: { id: input.student_id },
     data: {
       first_name: input.first_name,
@@ -747,11 +845,13 @@ export async function updateStudent(
       phone: input.phone,
       gender: input.gender,
       avatar_url: input.avatar_url,
+      email_verified: emailChanged ? false : student.email_verified,
+      must_change_password: emailChanged ? true : student.must_change_password,
     },
   });
 
   return {
-    success: true,
-    message: 'Student basic information updated successfully',
+    updatedStudent: updated,
+    emailChanged,
   };
 }

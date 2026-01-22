@@ -1,6 +1,8 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import * as service from '../services/student.service';
-
+import { triggerStudentInvite } from '../services/student-invite.helper';
+import { EmailService } from '../services/email';
+import { success } from 'zod';
 /* -----------------------------
    TYPES
 ------------------------------ */
@@ -241,7 +243,28 @@ export async function saveAdditionalInfoHandler(
     ...req.body,
   });
 
-  reply.send(result);
+  if(result?.student?.email) {
+    try {
+      const emailService = new EmailService(req.server.mailer);
+
+      await triggerStudentInvite(req.prisma, emailService, {
+        userId: result.student.id,
+        email: result.student.email,
+        firstName: result.student.first_name,
+        lastName: result.student.last_name,
+        inviterName: 'Institution Admin',
+      })
+    } catch (err) {
+      req.log.error(err, 'Student invite email failed');
+    }
+  }
+
+  reply.send({
+    success: true,
+    message: 'Additional information saved & invite sent'
+  });
+
+  // reply.send(result);
 }
 
 export async function deleteStudentHandler(
@@ -273,6 +296,8 @@ export async function getStudentHandler(
   reply.send(data);
 }
 
+
+
 export async function updateStudentHandler(
   req: FastifyRequest<{
     Params: { id: string };
@@ -295,5 +320,25 @@ export async function updateStudentHandler(
     ...req.body,
   });
 
-  reply.send(result);
+  // ✅ SEND INVITE ONLY IF EMAIL CHANGED
+  if (result.emailChanged) {
+    try {
+      const emailService = new EmailService(req.server.mailer);
+
+      await triggerStudentInvite(req.prisma, emailService, {
+        userId: result.updatedStudent.id,
+        email: result.updatedStudent.email,
+        firstName: result.updatedStudent.first_name,
+        lastName: result.updatedStudent.last_name,
+        inviterName: 'Institution Admin',
+      });
+    } catch (err) {
+      req.log.error(err, 'Student invite email failed');
+    }
+  }
+
+  reply.send({
+    success: true,
+    message: result.emailChanged ? 'Student updated & invite sent' : 'Student updated successfully',
+  });
 }
