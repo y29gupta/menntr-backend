@@ -12,10 +12,7 @@ import {
 } from '../services/batch.service';
 import { ForbiddenError, ValidationError } from '../utils/errors';
 
-export async function listBatchHandler(
-  req: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function listBatchHandler(req: FastifyRequest, reply: FastifyReply) {
   const prisma = req.prisma;
   const user_id = BigInt((req as any).user.sub);
 
@@ -26,43 +23,48 @@ export async function listBatchHandler(
 
   if (!user?.institution_id) throw new ForbiddenError('No institution');
 
-  const batches = await listBatches(prisma, user.institution_id);
+  const { page = 1, limit = 10 } = req.query as any;
 
-  reply.send(
-    batches.map(b => {
-      const startYear = b.start_date
-        ? new Date(b.start_date).getFullYear()
-        : null;
-      const endYear = b.end_date
-        ? new Date(b.end_date).getFullYear()
-        : null;
+  const result = await listBatches(prisma, {
+    institution_id: user.institution_id,
+    page: Number(page),
+    limit: Number(limit),
+  });
 
-      return {
-        id: b.id,
-        name: b.name,
-        category: b.category_role?.name ?? null,
-        department: {
-  id: b.department_role.id,
-  name: b.department_role.name,
-},
+  const data = result.data.map((b) => {
+    const startYear = b.start_date ? new Date(b.start_date).getFullYear() : null;
+    const endYear = b.end_date ? new Date(b.end_date).getFullYear() : null;
 
-coordinator: b.coordinator
-  ? {
-      id: b.coordinator.id,
-      name: `${b.coordinator.first_name ?? ''} ${b.coordinator.last_name ?? ''}`.trim(),
-    }
-  : null,
+    return {
+      id: b.id,
+      name: b.name,
+      category: b.category_role?.name ?? null,
 
-        // ✅ UI format
-        academic_year:
-          startYear && endYear ? `${startYear}-${endYear}` : null,
+      department: {
+        id: b.department_role.id,
+        name: b.department_role.name,
+      },
 
-        students: b.students.length,
-        status: b.is_active ? 'Active' : 'Inactive',
-      };
-    })
-  );
+      coordinator: b.coordinator
+        ? {
+            id: b.coordinator.id,
+            name: `${b.coordinator.first_name ?? ''} ${b.coordinator.last_name ?? ''}`.trim(),
+          }
+        : null,
+
+      academic_year: startYear && endYear ? `${startYear}-${endYear}` : null,
+
+      students: b.students.length,
+      status: b.is_active ? 'Active' : 'Inactive',
+    };
+  });
+
+  reply.send({
+    meta: result.meta,
+    data,
+  });
 }
+
 
 // export async function createBatchHandler(
 //   req: FastifyRequest,

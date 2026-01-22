@@ -13,10 +13,7 @@ import {
 import { Serializer } from '../utils/serializers';
 import { ValidationError, ForbiddenError } from '../utils/errors';
 
-export async function listDepartments(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function listDepartments(request: FastifyRequest, reply: FastifyReply) {
   const prisma = request.prisma;
   const user_id = BigInt((request as any).user.sub);
 
@@ -31,21 +28,18 @@ export async function listDepartments(
 
   const { page = 1, limit = 10, search = '' } = request.query as any;
 
-  const { rows, total } = await getDepartments(
-    prisma,
-    user.institution_id,
-    Number(page),
-    Number(limit),
-    search
-  );
+  const result = await getDepartments(prisma, {
+    institution_id: user.institution_id,
+    page: Number(page),
+    limit: Number(limit),
+    search,
+  });
 
-  const data = rows.map((r: any) => ({
+  const data = result.data.map((r: any) => ({
     id: r.id,
     name: r.name,
     code: r.code,
-    category: r.parent
-      ? { id: r.parent.id, name: r.parent.name }
-      : null,
+    category: r.parent ? { id: r.parent.id, name: r.parent.name } : null,
     hod: r.user_roles.length
       ? {
           id: Serializer.bigIntToString(r.user_roles[0].user.id),
@@ -59,8 +53,12 @@ export async function listDepartments(
     updated_at: r.updated_at,
   }));
 
-  reply.send({ total, page, limit, data });
+  reply.send({
+    ...result.meta,
+    data,
+  });
 }
+
 
 export async function addDepartment(
   request: FastifyRequest,

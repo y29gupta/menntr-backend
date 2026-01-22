@@ -1,21 +1,38 @@
 import { PrismaClient } from '@prisma/client';
 import { NotFoundError } from '../utils/errors';
+import { buildPaginatedResponse, getPagination } from '../utils/pagination';
 
 export async function listBatches(
   prisma: PrismaClient,
-  institution_id: number
+  params: {
+    institution_id: number;
+    page?: number;
+    limit?: number;
+  }
 ) {
-  return prisma.batches.findMany({
-    where: { institution_id },
-    include: {
-      category_role: true,
-      department_role: true,
-      coordinator: true,
-      students: true,
-    },
-    orderBy: { created_at: 'desc' },
-  });
+  const { page, limit, skip } = getPagination(params);
+
+  const [rows, total] = await Promise.all([
+    prisma.batches.findMany({
+      where: { institution_id: params.institution_id },
+      include: {
+        category_role: true,
+        department_role: true,
+        coordinator: true,
+        students: true,
+      },
+      orderBy: { created_at: 'desc' },
+      skip,
+      take: limit,
+    }),
+    prisma.batches.count({
+      where: { institution_id: params.institution_id },
+    }),
+  ]);
+
+  return buildPaginatedResponse(rows, total, page, limit);
 }
+
 
 export async function getBatchById(
   prisma: PrismaClient,

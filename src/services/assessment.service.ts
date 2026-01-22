@@ -5,6 +5,7 @@ import { PrismaClient, AssessmentStatus, QuestionDifficulty, QuestionType } from
 import { timeAgo } from '../utils/time';
 import { capitalize, formatQuestionType } from '../utils/assessments/formatQuestionType';
 import { findOrCreateQuestion } from './question.service';
+import { buildPaginatedResponse, getPagination } from '../utils/pagination';
 
 /* -------------------------------
    CREATE
@@ -279,70 +280,69 @@ export async function publishAssessment(prisma: PrismaClient, assessmentId: bigi
 
 export async function listAssessments(
   prisma: PrismaClient,
-  institutionId: number,
-  tab: 'active' | 'draft' | 'closed'
+  params: {
+    institution_id: number;
+    tab: 'active' | 'draft' | 'closed';
+    page?:number;
+    limit?: number;
+    search?: number;
+  }
 ) {
+  const { page, limit, skip } = getPagination(params);
   let statusFilter: any = {};
 
-  if (tab === 'active') {
+  if (params.tab === 'active') {
     statusFilter = { status: { in: ['published', 'active'] } };
   }
-  if (tab === 'draft') {
+  if (params.tab === 'draft') {
     statusFilter = { status: 'draft' };
   }
-  if (tab === 'closed') {
+  if (params.tab === 'closed') {
     statusFilter = { status: { in: ['closed', 'archived'] } };
   }
-  const assessments = await prisma.assessments.findMany({
-    where: {
-      institution_id: institutionId,
-      is_deleted: false,
-      ...statusFilter,
-    },
-    include: {
-      questions: true, // for count
-      batches: {
-        include: {
-          batch: true, // department / batch name
+
+  const where: any = {
+    institution_id: params.institution_id,
+    is_deleted: false,
+    ...statusFilter,
+  }
+  const [assessments, total] = await Promise.all([
+    prisma.assessments.findMany({
+      where,
+      skip,
+      take: limit,
+      include: {
+        questions: true,
+        batches: {
+          include: {
+            batch: true,
+          },
         },
       },
-    },
-    orderBy: {
-      updated_at: 'desc',
-    },
-  });
+      orderBy: {
+        updated_at: 'desc',
+      },
+    }),
+    prisma.assessments.count({ where }),
+  ]);
 
-  return assessments.map((a) => {
+  const rows = assessments.map((a) => {
     const metadata = a.metadata as AssessmentMetaData | null;
 
     return {
       id: a.id.toString(),
-
-      // UI columns
       assessmentName: a.title,
       category: metadata?.category ?? '-',
-
       departmentBatch: a.batches.length > 0 ? a.batches.map((b) => b.batch.name).join(', ') : '-',
-
       questions: a.questions.length,
-
       publishedOn: a.published_at ? a.published_at.toISOString().split('T')[0] : '-',
-
       expiryOn: a.end_time ? a.end_time.toISOString().split('T')[0] : '-',
-
-      // lastEdited: a.updated_at
-      //   ? `${Math.max(
-      //       1,
-      //       Math.floor(
-      //         (Date.now() - a.updated_at.getTime()) / (1000 * 60 * 60 * 24)
-      //       )
-      //     )} days ago`
-      //   : '-',
       lastEdited: a.updated_at ? timeAgo(a.updated_at) : '-',
-
       status: a.status,
     };
   });
+
+  return buildPaginatedResponse(rows, total, page, limit);
 }
 
 export async function getAssessment(prisma: PrismaClient, assessmentId: bigint) {

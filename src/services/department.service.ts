@@ -1,9 +1,10 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import {
   NotFoundError,
   ConflictError,
   ForbiddenError,
 } from '../utils/errors';
+import { buildPaginatedResponse, getPagination } from '../utils/pagination';
 
 
 const DEPARTMENT_LEVEL = 3;
@@ -25,19 +26,27 @@ export interface UpdateDepartmentInput {
 
 export async function getDepartments(
   prisma: PrismaClient,
-  institution_id: number,
-  page = 1,
-  limit = 10,
-  search = ''
+  params: {
+    institution_id: number;
+    page?: number;
+    limit?: number;
+    search?: string;
+  }
 ) {
+  const { page, limit, skip } = getPagination(params);
+
+  const where = {
+    institution_id: params.institution_id,
+    role_hierarchy_id: DEPARTMENT_LEVEL,
+    is_system_role: false,
+    ...(params.search && {
+      name: { contains: params.search, mode: Prisma.QueryMode.insensitive, },
+    }),
+  };
+
   const [rows, total] = await Promise.all([
     prisma.roles.findMany({
-      where: {
-        institution_id,
-        role_hierarchy_id: DEPARTMENT_LEVEL,
-        is_system_role: false,
-        name: { contains: search, mode: 'insensitive' },
-      },
+      where,
       include: {
         parent: true, // category
         user_roles: {
@@ -45,20 +54,15 @@ export async function getDepartments(
         },
       },
       orderBy: { created_at: 'desc' },
-      skip: (page - 1) * limit,
+      skip,
       take: limit,
     }),
-    prisma.roles.count({
-      where: {
-        institution_id,
-        role_hierarchy_id: DEPARTMENT_LEVEL,
-        is_system_role: false,
-      },
-    }),
+    prisma.roles.count({ where }),
   ]);
 
-  return { rows, total };
+  return buildPaginatedResponse(rows, total, page, limit);
 }
+
 
 
 

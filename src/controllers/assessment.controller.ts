@@ -277,7 +277,7 @@ export async function listAssessmentsHandler(
       message: 'Invalid tab value',
     });
   }
-  const list = await service.listAssessments(req.prisma, user.institution_id, tab);
+  const list = await service.listAssessments(req.prisma, {institution_id:user.institution_id, tab});
   reply.send(list);
 }
 
