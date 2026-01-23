@@ -7,6 +7,15 @@ import { capitalize, formatQuestionType } from '../utils/assessments/formatQuest
 import { findOrCreateQuestion } from './question.service';
 import { buildPaginatedResponse, getPagination } from '../utils/pagination';
 
+
+interface BulkUploadCodingInput {
+  assessment_id: bigint;
+  institution_id: number;
+  created_by: bigint;
+  fileName: string;
+  buffer: Buffer;
+}
+
 /* -------------------------------
    CREATE
 -------------------------------- */
@@ -1243,4 +1252,127 @@ export async function updateAssessment(
     success: true,
     message: 'Assessment updated successfully',
   };
+}
+
+
+export async function bulkUploadCodingQuestions(
+  prisma: PrismaClient,
+  input: BulkUploadCodingInput
+) {
+  let rows: any[] = [];
+
+  // ------------------------
+  // Parse file
+  // ------------------------
+  if (input.fileName.endsWith('.xlsx')) {
+    const workbook = XLSX.read(input.buffer);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(sheet);
+  } else if (input.fileName.endsWith('.csv')) {
+    rows = parse(input.buffer, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    });
+  } else {
+    throw new ConflictError('Only CSV or Excel files are supported');
+  }
+
+  if (!rows.length) {
+    throw new ConflictError('Uploaded file is empty');
+  }
+
+  let created = 0;
+  let attached = 0;
+  let skipped = 0;
+
+  // ------------------------
+  // Process rows
+  // ------------------------
+  for (const row of rows) {
+    const title = row['Problem Title'];
+    const statement = row['Problem Statement'];
+    const difficulty = row['Difficulty']?.toLowerCase();
+    const points = Number(row['Points']) || 1;
+
+    if (!title || !statement) {
+      skipped++;
+      continue;
+    }
+
+    const sample_test_cases = parseJsonSafe(row['Sample Test Cases']);
+    const supported_languages = parseArraySafe(row['Supported Languages']);
+
+    // 🔑 SINGLE SOURCE OF TRUTH
+    const question = await findOrCreateQuestion(prisma, {
+      institution_id: input.institution_id,
+      created_by: input.created_by,
+      question_text: title,
+      question_type: 'coding',
+      difficulty_level: difficulty ?? 'medium',
+      points,
+      tags: normalizeTags(row['Topic']),
+      metadata: {
+        problem_title: title,
+        problem_statement: statement,
+        constraints: row['Constraints'],
+        input_format: row['Input Format'],
+        output_format: row['Output Format'],
+        sample_test_cases,
+        supported_languages,
+        time_limit_minutes: Number(row['Time Limit (min)']) || 1,
+      },
+    });
+
+    // Detect reuse vs new
+    if (question.created_at.getTime() !== question.updated_at.getTime()) {
+      skipped++;
+    } else {
+      created++;
+    }
+
+    // 🔒 Attach safely
+    await prisma.assessment_questions.upsert({
+      where: {
+        assessment_id_question_id: {
+          assessment_id: input.assessment_id,
+          question_id: question.id,
+        },
+      },
+      update: {},
+      create: {
+        assessment_id: input.assessment_id,
+        question_id: question.id,
+        points,
+        is_mandatory: true,
+      },
+    });
+
+    attached++;
+  }
+
+  return {
+    success: true,
+    created_questions: created,
+    attached_questions: attached,
+    skipped_duplicates: skipped,
+  };
+}
+
+function parseJsonSafe(value: any) {
+  try {
+    if (!value) return [];
+    return typeof value === 'string' ? JSON.parse(value) : value;
+  } catch {
+    return [];
+  }
+}
+
+function parseArraySafe(value: any) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  return String(value)
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
 }

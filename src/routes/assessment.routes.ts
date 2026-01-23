@@ -28,6 +28,7 @@ import {
   updateQuestionHandler,
   deleteAssessmentQuestionHandler,
   updateAssessmentHandler,
+  bulkUploadCodingQuestionsHandler,
 } from '../controllers/assessment.controller';
 
 export async function assessmentRoutes(app: any) {
@@ -98,4 +99,7 @@ export async function assessmentRoutes(app: any) {
 
   // edit assessment (only if status = draft)
   app.put('/assessments/:id', { preHandler: [authGuard] }, updateAssessmentHandler);
+
+  // bulk upload coding questions
+  app.post('/assessments/:id/questions/coding/bulk-upload', {preHandler: [authGuard]}, bulkUploadCodingQuestionsHandler);
 }
