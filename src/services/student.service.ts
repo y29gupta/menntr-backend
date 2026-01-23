@@ -62,13 +62,43 @@ export async function listStudents(
   const where: any = {
     institution_id: params.institution_id,
     user_roles: { some: { role: { name: 'Student' } } },
+    AND: [],
   };
 
+  /* ------------------------------------------------
+     STATUS HANDLING (COLUMN > GLOBAL)
+  ------------------------------------------------- */
+
+  const normalizedSearch = params.search?.trim().toLowerCase();
+  const STATUS_KEYWORDS = ['active', 'inactive', 'suspended', 'deleted'] as const;
+
+  const statusFromSearch =
+    normalizedSearch && STATUS_KEYWORDS.includes(normalizedSearch as any)
+      ? normalizedSearch
+      : undefined;
+
+  // column filter ALWAYS wins
+  if (params.status) {
+    where.AND.push({ status: params.status });
+  }
+  // infer status ONLY if search is a pure status
+  else if (statusFromSearch) {
+    where.AND.push({ status: statusFromSearch });
+  }
+
   /* ---------------- COLUMN FILTERS ---------------- */
-  if (params.status) where.status = params.status;
-  if (params.first_name) where.first_name = { contains: params.first_name, mode: 'insensitive' };
-  if (params.last_name) where.last_name = { contains: params.last_name, mode: 'insensitive' };
-  if (params.email) where.email = { contains: params.email, mode: 'insensitive' };
+
+  if (params.first_name) {
+    where.AND.push({ first_name: { contains: params.first_name, mode: 'insensitive' } });
+  }
+
+  if (params.last_name) {
+    where.AND.push({ last_name: { contains: params.last_name, mode: 'insensitive' } });
+  }
+
+  if (params.email) {
+    where.AND.push({ email: { contains: params.email, mode: 'insensitive' } });
+  }
 
   if (
     params.roll_number ||
@@ -79,111 +109,108 @@ export async function listStudents(
     params.batch_id ||
     params.department_role_id
   ) {
-    where.batchStudents = {
-      some: {
-        ...(params.roll_number && {
-          roll_number: { contains: params.roll_number, mode: 'insensitive' },
-        }),
-        ...(params.batch_id && { batch_id: params.batch_id }),
-        ...(params.department_role_id && {
-          batch: { department_role_id: params.department_role_id },
-        }),
-        ...(params.academic_year && {
-          batch: { academic_year: params.academic_year },
-        }),
-        ...(params.section && {
-          batch: {
-            sections: {
-              some: { name: { contains: params.section, mode: 'insensitive' } },
+    where.AND.push({
+      batchStudents: {
+        some: {
+          ...(params.roll_number && {
+            roll_number: { contains: params.roll_number, mode: 'insensitive' },
+          }),
+          ...(params.batch_id && { batch_id: params.batch_id }),
+          ...(params.department_role_id && {
+            batch: { department_role_id: params.department_role_id },
+          }),
+          ...(params.academic_year && {
+            batch: { academic_year: params.academic_year },
+          }),
+          ...(params.section && {
+            batch: {
+              sections: {
+                some: { name: { contains: params.section, mode: 'insensitive' } },
+              },
             },
-          },
-        }),
-        ...(params.department && {
-          batch: {
-            department_role: {
-              name: { contains: params.department, mode: 'insensitive' },
+          }),
+          ...(params.department && {
+            batch: {
+              department_role: {
+                name: { contains: params.department, mode: 'insensitive' },
+              },
             },
-          },
-        }),
-        ...(params.category && {
-          batch: {
-            category_role: {
-              name: { contains: params.category, mode: 'insensitive' },
+          }),
+          ...(params.category && {
+            batch: {
+              category_role: {
+                name: { contains: params.category, mode: 'insensitive' },
+              },
             },
-          },
-        }),
+          }),
+        },
       },
-    };
+    });
   }
 
-  /* ---------------- GLOBAL SEARCH ---------------- */
-  if (params.search) {
-    const search = params.search;
+  /* ---------------- GLOBAL SEARCH (TEXT ONLY) ---------------- */
+  // 🚨 IMPORTANT: skip if search is a STATUS
+  if (params.search && !statusFromSearch) {
+    const search = params.search.trim();
 
-    where.AND = [
-      ...(where.AND || []),
-      {
-        OR: [
-          { first_name: { contains: search, mode: 'insensitive' } },
-          { last_name: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } },
-          { status: { equals: search as any } },
+    where.AND.push({
+      OR: [
+        { first_name: { contains: search, mode: 'insensitive' } },
+        { last_name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
 
-          {
-            batchStudents: {
-              some: {
-                roll_number: { contains: search, mode: 'insensitive' },
-              },
-            },
+        {
+          batchStudents: {
+            some: { roll_number: { contains: search, mode: 'insensitive' } },
           },
-          {
-            batchStudents: {
-              some: {
-                batch: {
-                  sections: {
-                    some: { name: { contains: search, mode: 'insensitive' } },
-                  },
+        },
+        {
+          batchStudents: {
+            some: {
+              batch: {
+                sections: {
+                  some: { name: { contains: search, mode: 'insensitive' } },
                 },
               },
             },
           },
-          {
-            batchStudents: {
-              some: {
-                batch: {
-                  department_role: {
-                    name: { contains: search, mode: 'insensitive' },
-                  },
+        },
+        {
+          batchStudents: {
+            some: {
+              batch: {
+                department_role: {
+                  name: { contains: search, mode: 'insensitive' },
                 },
               },
             },
           },
-          {
-            batchStudents: {
-              some: {
-                batch: {
-                  category_role: {
-                    name: { contains: search, mode: 'insensitive' },
-                  },
+        },
+        {
+          batchStudents: {
+            some: {
+              batch: {
+                category_role: {
+                  name: { contains: search, mode: 'insensitive' },
                 },
               },
             },
           },
-          ...(isNaN(Number(search))
-            ? []
-            : [
-                {
-                  batchStudents: {
-                    some: {
-                      batch: { academic_year: Number(search) },
-                    },
-                  },
+        },
+        ...(isNaN(Number(search))
+          ? []
+          : [
+              {
+                batchStudents: {
+                  some: { batch: { academic_year: Number(search) } },
                 },
-              ]),
-        ],
-      },
-    ];
+              },
+            ]),
+      ],
+    });
   }
+
+  if (where.AND.length === 0) delete where.AND;
 
   const [students, total] = await Promise.all([
     prisma.users.findMany({
@@ -208,36 +235,43 @@ export async function listStudents(
     }),
     prisma.users.count({ where }),
   ]);
+const rows = students.map((s) => {
+  const batch = s.batchStudents[0];
+  const attempts = s.assessment_attempts;
 
-  const rows = students.map((s) => {
-    const batch = s.batchStudents[0];
-    const attempts = s.assessment_attempts;
+  const avgScore =
+    attempts.length > 0
+      ? Math.round(
+          attempts.reduce((sum, a) => sum + Number(a.percentage || 0), 0) /
+            attempts.length
+        )
+      : null;
 
-    return {
-      id: s.id.toString(),
-      studentName: `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim(),
-      email: s.email,
-      rollNumber: batch?.roll_number ?? '-',
-      category: batch?.batch.category_role?.name ?? '-',
-      department: batch?.batch.department_role?.name ?? '-',
-      batch: batch ? `${batch.batch.academic_year}` : '-',
-      section: batch?.section_id
-        ? (batch.batch.sections.find((x) => x.id === batch.section_id)?.name ?? '-')
-        : '-',
-      assessmentsTaken: attempts.length,
-      averageScore:
-        attempts.length > 0
-          ? Math.round(
-              attempts.reduce((s, a) => s + Number(a.percentage || 0), 0) / attempts.length
-            )
-          : null,
-      status: s.status,
-      lastLogin: s.last_login_at ? timeAgo(s.last_login_at) : '-',
-    };
-  });
+  return {
+    id: s.id.toString(),
+    studentName: `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim(),
+    email: s.email,
+    rollNumber: batch?.roll_number ?? '-',
+    category: batch?.batch.category_role?.name ?? '-',
+    department: batch?.batch.department_role?.name ?? '-',
+    batch: batch ? `${batch.batch.academic_year}` : '-',
+    section: batch?.section_id
+      ? batch.batch.sections.find((x) => x.id === batch.section_id)?.name ?? '-'
+      : '-',
+    assessmentsTaken: attempts.length,
+    averageScore: avgScore,
+    status: s.status,
+    lastLogin: s.last_login_at ? timeAgo(s.last_login_at) : '-',
+  };
+});
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
+
+
+
+
+
 
 
 

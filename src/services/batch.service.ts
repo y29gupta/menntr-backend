@@ -20,7 +20,10 @@ export async function listBatches(
 ) {
   const { page, limit, skip } = getPagination(params);
 
-  /* ---------------- STATUS FROM GLOBAL SEARCH ---------------- */
+  /* ------------------------------------------------
+     STATUS HANDLING (COLUMN > GLOBAL)
+  ------------------------------------------------- */
+
   const normalizedSearch = params.search?.trim().toLowerCase();
 
   let statusFromSearch: boolean | undefined;
@@ -34,10 +37,12 @@ export async function listBatches(
 
   /* ---------------- COLUMN FILTERS (PRIORITY) ---------------- */
 
+  // column filter ALWAYS wins
   if (params.status !== undefined) {
     where.AND.push({ is_active: params.status });
-  } else if (statusFromSearch !== undefined) {
-    // ✅ global search fallback
+  }
+  // fallback to global search status
+  else if (statusFromSearch !== undefined) {
     where.AND.push({ is_active: statusFromSearch });
   }
 
@@ -74,10 +79,10 @@ export async function listBatches(
     });
   }
 
-  /* ---------------- GLOBAL SEARCH (TEXT FIELDS ONLY) ---------------- */
-
+  /* ---------------- GLOBAL SEARCH (TEXT ONLY) ---------------- */
+  // 🚨 skip text OR if search was a status keyword
   if (params.search && statusFromSearch === undefined) {
-    const search = params.search;
+    const search = params.search.trim();
 
     where.AND.push({
       OR: [
@@ -107,7 +112,7 @@ export async function listBatches(
     });
   }
 
-  // 🔒 Prisma safety
+  // Prisma safety
   if (where.AND.length === 0) delete where.AND;
 
   const [rows, total] = await Promise.all([
@@ -128,6 +133,7 @@ export async function listBatches(
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
+
 
 
 
