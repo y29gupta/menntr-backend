@@ -149,15 +149,35 @@ export async function listStudents(
   }
 
   /* ---------------- GLOBAL SEARCH (TEXT ONLY) ---------------- */
-  // 🚨 IMPORTANT: skip if search is a STATUS
+  // 🚨 skip if search is a STATUS
   if (params.search && !statusFromSearch) {
     const search = params.search.trim();
+    const parts = search.split(/\s+/);
 
     where.AND.push({
       OR: [
+        // single-field matches
         { first_name: { contains: search, mode: 'insensitive' } },
         { last_name: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
+
+        // ✅ multi-word name matching (John Doe)
+        ...(parts.length > 1
+          ? [
+              {
+                AND: [
+                  { first_name: { contains: parts[0], mode: 'insensitive' } },
+                  { last_name: { contains: parts[1], mode: 'insensitive' } },
+                ],
+              },
+              {
+                AND: [
+                  { first_name: { contains: parts[1], mode: 'insensitive' } },
+                  { last_name: { contains: parts[0], mode: 'insensitive' } },
+                ],
+              },
+            ]
+          : []),
 
         {
           batchStudents: {
@@ -235,35 +255,34 @@ export async function listStudents(
     }),
     prisma.users.count({ where }),
   ]);
-const rows = students.map((s) => {
-  const batch = s.batchStudents[0];
-  const attempts = s.assessment_attempts;
+  const rows = students.map((s) => {
+    const batch = s.batchStudents[0];
+    const attempts = s.assessment_attempts;
 
-  const avgScore =
-    attempts.length > 0
-      ? Math.round(
-          attempts.reduce((sum, a) => sum + Number(a.percentage || 0), 0) /
-            attempts.length
-        )
-      : null;
+    const avgScore =
+      attempts.length > 0
+        ? Math.round(
+            attempts.reduce((sum, a) => sum + Number(a.percentage || 0), 0) / attempts.length
+          )
+        : null;
 
-  return {
-    id: s.id.toString(),
-    studentName: `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim(),
-    email: s.email,
-    rollNumber: batch?.roll_number ?? '-',
-    category: batch?.batch.category_role?.name ?? '-',
-    department: batch?.batch.department_role?.name ?? '-',
-    batch: batch ? `${batch.batch.academic_year}` : '-',
-    section: batch?.section_id
-      ? batch.batch.sections.find((x) => x.id === batch.section_id)?.name ?? '-'
-      : '-',
-    assessmentsTaken: attempts.length,
-    averageScore: avgScore,
-    status: s.status,
-    lastLogin: s.last_login_at ? timeAgo(s.last_login_at) : '-',
-  };
-});
+    return {
+      id: s.id.toString(),
+      studentName: `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim(),
+      email: s.email,
+      rollNumber: batch?.roll_number ?? '-',
+      category: batch?.batch.category_role?.name ?? '-',
+      department: batch?.batch.department_role?.name ?? '-',
+      batch: batch ? `${batch.batch.academic_year}` : '-',
+      section: batch?.section_id
+        ? (batch.batch.sections.find((x) => x.id === batch.section_id)?.name ?? '-')
+        : '-',
+      assessmentsTaken: attempts.length,
+      averageScore: avgScore,
+      status: s.status,
+      lastLogin: s.last_login_at ? timeAgo(s.last_login_at) : '-',
+    };
+  });
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
