@@ -773,81 +773,203 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
   }
 }
 
-export async function listUsers(req: FastifyRequest, reply: FastifyReply) {
-  const prisma = req.prisma;
+export async function listUsers(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    const prisma = request.prisma;
 
-  const user_id = BigInt((req as any).user.sub);
+    /* ---------------- AUTH USER ---------------- */
 
-  const authUser = await prisma.users.findUnique({
-    where: { id: user_id },
-    select: { institution_id: true },
-  });
+    const userId = BigInt((request as any).user.sub);
 
-  if (!authUser?.institution_id) {
-    throw new ForbiddenError('No institution linked');
-  }
+    const authUser = await prisma.users.findUnique({
+      where: { id: userId },
+      select: { institution_id: true },
+    });
 
-  const { page = 1, limit = 10, search = '', status } = req.query as any;
+    if (!authUser?.institution_id) {
+      throw new ForbiddenError('No institution linked');
+    }
 
-  const where: any = {
-    institution_id: authUser.institution_id,
-    email: {
-      contains: search,
-      mode: 'insensitive',
-    },
-  };
+    /* ---------------- QUERY PARAMS ---------------- */
 
-  if (status) {
-    where.status = status;
-  }
+    const {
+      page = '1',
+      limit = '10',
 
-  // 🔹 Fetch users + count
-  const [rows, total] = await Promise.all([
-    prisma.users.findMany({
-      where,
-      include: {
-        user_roles: {
-          include: {
-            role: {
-              include: {
-                parent: true,
+      // global search
+      search,
+
+      // column filters
+      email,
+      status,
+      role,
+      department,
+      name,
+    } = request.query as any;
+
+    const pageNumber = Number(page);
+    const limitNumber = Number(limit);
+
+    if (
+      Number.isNaN(pageNumber) ||
+      Number.isNaN(limitNumber) ||
+      pageNumber < 1 ||
+      limitNumber < 1
+    ) {
+      return reply.code(400).send({
+        error: 'Invalid pagination parameters',
+      });
+    }
+
+    /* ---------------- WHERE BUILDER ---------------- */
+
+    const where: any = {
+      institution_id: authUser.institution_id,
+    };
+
+    /* ---------- COLUMN FILTERS ---------- */
+
+    if (email) {
+      where.email = { contains: email, mode: 'insensitive' };
+    }
+
+    if (status) {
+      // enum filter (safe)
+      where.status = status;
+    }
+
+    if (role || department) {
+      where.user_roles = {
+        some: {
+          role: {
+            is_system_role: false,
+            ...(role && {
+              name: { contains: role, mode: 'insensitive' },
+            }),
+            ...(department && {
+              role_hierarchy_id: 3,
+              name: { contains: department, mode: 'insensitive' },
+            }),
+          },
+        },
+      };
+    }
+
+    /* ---------------- GLOBAL SEARCH (NO STATUS) ---------------- */
+
+    const orConditions: any[] = [];
+
+    if (name) {
+      orConditions.push(
+        { first_name: { contains: name, mode: 'insensitive' } },
+        { last_name: { contains: name, mode: 'insensitive' } }
+      );
+    }
+
+    if (search) {
+      orConditions.push(
+        // Name
+        { first_name: { contains: search, mode: 'insensitive' } },
+        { last_name: { contains: search, mode: 'insensitive' } },
+
+        // Email
+        { email: { contains: search, mode: 'insensitive' } },
+
+        // Role
+        {
+          user_roles: {
+            some: {
+              role: {
+                is_system_role: false,
+                name: { contains: search, mode: 'insensitive' },
               },
             },
           },
         },
+
+        // Department
+        {
+          user_roles: {
+            some: {
+              role: {
+                role_hierarchy_id: 3,
+                name: { contains: search, mode: 'insensitive' },
+              },
+            },
+          },
+        }
+      );
+    }
+
+    if (orConditions.length > 0) {
+      where.OR = orConditions;
+    }
+
+    /* ---------------- PAGINATED QUERY ---------------- */
+
+    const [rows, meta] = await prisma.users
+      .paginate({
+        where,
+        select: {
+          id: true,
+          first_name: true,
+          last_name: true,
+          email: true,
+          status: true,
+          last_login_at: true,
+          user_roles: {
+            where: {
+              role: { is_system_role: false },
+            },
+            take: 1,
+            select: {
+              role: {
+                select: {
+                  name: true,
+                  role_hierarchy_id: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+      })
+      .withPages({
+        page: pageNumber,
+        limit: limitNumber,
+      });
+
+    /* ---------------- RESPONSE MAPPING ---------------- */
+
+    const data = rows.map((u: any) => {
+      const role = u.user_roles[0]?.role ?? null;
+
+      return {
+        id: u.id.toString(),
+        name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
+        email: u.email,
+        role: role?.name ?? null,
+        department: role?.role_hierarchy_id === 3 ? role.name : null,
+        status: u.status,
+        lastLoginAt: u.last_login_at,
+      };
+    });
+
+    /* ---------------- FINAL RESPONSE ---------------- */
+
+    return reply.send({
+      data,
+      meta: {
+        ...meta,
+        currentPageCount: data.length,
       },
-      orderBy: { created_at: 'desc' },
-      skip: (Number(page) - 1) * Number(limit),
-      take: Number(limit),
-    }),
-
-    prisma.users.count({ where }),
-  ]);
-
-  const data = rows.map((u: any) => {
-    const roleEntry = u.user_roles.find((ur: any) => !ur.role.is_system_role);
-
-    const role = roleEntry?.role ?? null;
-
-    const department = role?.role_hierarchy_id === 3 ? role.name : null;
-
-    return {
-      id: u.id.toString(),
-      name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
-      email: u.email,
-      role: role?.name ?? null,
-      department,
-      status: u.status,
-      lastLoginAt: u.last_login_at,
-    };
-  });
-
-  reply.send({
-    total,
-    page: Number(page),
-    limit: Number(limit),
-    data,
-  });
+    });
+  } catch (err) {
+    request.log.error(err);
+    return reply.code(500).send({
+      error: 'Internal server error',
+    });
+  }
 }
 
 export async function bulkCreateUsersFromExcel(request: FastifyRequest, reply: FastifyReply) {
