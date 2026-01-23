@@ -22,7 +22,7 @@ export async function institutionAdminRoutes(fastify: FastifyInstance) {
   fastify.get('/institutionsadmin/features/permissions/:featureCode', getFeaturePermissionsHandler);
   fastify.post('/institutionsadmin/create-user', createUserFlexible);
   fastify.post('/institutionsadmin/members', createInstitutionMemberHandler);
-  fastify.get('/institutionsadmin/user-management/users', { preHandler: [authGuard] }, listUsers);
+  fastify.get('/institutionsadmin/user-management/users', listUsers);
   fastify.post('/users/bulk-upload', bulkCreateUsersFromExcel);
   fastify.patch('/users/status/:id', changeUserStatus);
 }
