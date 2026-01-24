@@ -15,6 +15,7 @@ import {
   ConsumeInviteSchema,
   ChangePasswordSchema,
 } from '../schemas/auth.schema';
+import { meContextHandler } from '../auth/me.context.handler';
 
 export default async function authRoutes(fastify: FastifyInstance) {
   /**
@@ -25,6 +26,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
    * - Rate limited
    * - Zod validation enforced by Fastify
    */
+  fastify.get(
+    '/me/context',
+    {
+      preHandler: [authGuard], // JWT auth
+    },
+    meContextHandler
+  );
   fastify.post(
     '/login',
     {

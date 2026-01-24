@@ -13,110 +13,236 @@ import { resolveUserPermissions } from '../services/authorization.service';
 // import { getInstitutionAdminRole } from '../services/role.service';
 import { token_type } from '@prisma/client';
 import { LoginSchema, ChangePasswordSchema, ConsumeInviteSchema, InviteSchema } from '../schemas/auth.schema';
+import { resolveAccessContext } from '../auth/permission.resolver';
 
+// export async function loginHandler(request: FastifyRequest, reply: FastifyReply) {
+//   const logger = new Logger(request.log);
+//   const requestId = request.id;
+//   const prisma = request.prisma;
+
+//   try {
+//     const parsed = LoginSchema.safeParse(request.body);
+//     if (!parsed.success) {
+//       logger.warn('LOGIN_VALIDATION_FAILED', {
+//         requestId,
+//         issues: parsed.error.issues,
+//       });
+//       throw new ValidationError('Invalid request', parsed.error.issues);
+//     }
+
+//     const { email, password, institution_code } = parsed.data;
+
+//     logger.info('LOGIN_ATTEMPT', {
+//       requestId,
+//       email_hash: AuthService.hashForLog(email),
+//       context: institution_code ? 'INSTITUTION' : 'SUPER_ADMIN',
+//       ip: request.ip,
+//     });
+
+//     const dummyHash = '$2b$10$C6UzMDM.H6dfI/f/IKcEeO4Gx3yZ7pE6s1Z6pJ9XyM54q9WlH0y2K';
+
+//     let user = null;
+//     let institutionId: bigint | null = null;
+
+//     if (institution_code) {
+//       const institution = await prisma.institutions.findUnique({
+//         where: { code: institution_code },
+//       });
+
+//       if (institution) {
+//         institutionId = institution.id;
+//         user = await prisma.users.findUnique({
+//           where: {
+//             email_institution_id: {
+//               email,
+//               institution_id: institution.id,
+//             },
+//           },
+//           include: { user_roles: { include: { role: true } } },
+//         });
+//       }
+//     } else {
+//       user = await prisma.users.findFirst({
+//         where: { email, institution_id: null, status: 'active' },
+//         include: { user_roles: { include: { role: true } } },
+//       });
+//     }
+
+//     const passwordHash = user?.password_hash ?? dummyHash;
+//     const valid = await AuthService.comparePassword(password, passwordHash);
+
+//     if (!user || !valid || user.status !== 'active') {
+//       logger.warn('LOGIN_FAILED', {
+//         requestId,
+//         reason: 'INVALID_CREDENTIALS',
+//         context: institution_code ? 'INSTITUTION' : 'SUPER_ADMIN',
+//       });
+//       throw new UnauthorizedError('Invalid credentials');
+//     }
+
+//     await prisma.users.update({
+//       where: { id: user.id },
+//       data: { last_login_at: new Date() },
+//     });
+
+//     const roles = Serializer.serializeRoles(user);
+//     // const permissions = await resolveUserPermissions(prisma, user.id);
+
+//     const token = AuthService.signJwt({
+//       sub: Serializer.bigIntToString(user.id),
+//       email: user.email,
+//       institution_id: institutionId ?? undefined,
+//       roles: roles.map((r: any) => r.name),
+//       // permissions,
+//       isSuperAdmin: !institution_code,
+//     });
+
+//     CookieManager.setAuthToken(reply, token);
+
+//     logger.audit({
+//       user_id: Serializer.bigIntToString(user.id),
+//       action: 'LOGIN_SUCCESS',
+//       resource: 'users',
+//       status: 'success',
+//       ip_address: request.ip,
+//       metadata: { requestId },
+//     });
+
+//     return reply.send(
+//       Serializer.authResponse(true, {
+//         id: Serializer.bigIntToString(user.id),
+//         roles,
+//         isSuperAdmin: !institution_code,
+//       })
+//     );
+//   } catch (error) {
+//     logger.error('LOGIN_ERROR', error as Error, { requestId });
+//     throw error;
+//   }
+// }
 export async function loginHandler(request: FastifyRequest, reply: FastifyReply) {
   const logger = new Logger(request.log);
-  const requestId = request.id;
   const prisma = request.prisma;
+  const requestId = request.id;
 
   try {
+    /**
+     * 1. Validate input
+     */
     const parsed = LoginSchema.safeParse(request.body);
     if (!parsed.success) {
-      logger.warn('LOGIN_VALIDATION_FAILED', {
-        requestId,
-        issues: parsed.error.issues,
-      });
       throw new ValidationError('Invalid request', parsed.error.issues);
     }
 
     const { email, password, institution_code } = parsed.data;
 
-    logger.info('LOGIN_ATTEMPT', {
-      requestId,
-      email_hash: AuthService.hashForLog(email),
-      context: institution_code ? 'INSTITUTION' : 'SUPER_ADMIN',
-      ip: request.ip,
-    });
+    /**
+     * 2. Find user
+     */
+    let user = null;
+    let institutionId: number | undefined;
 
     const dummyHash = '$2b$10$C6UzMDM.H6dfI/f/IKcEeO4Gx3yZ7pE6s1Z6pJ9XyM54q9WlH0y2K';
-
-    let user = null;
-    let institutionId: bigint | null = null;
 
     if (institution_code) {
       const institution = await prisma.institutions.findUnique({
         where: { code: institution_code },
       });
 
-      if (institution) {
-        institutionId = institution.id;
-        user = await prisma.users.findUnique({
-          where: {
-            email_institution_id: {
-              email,
-              institution_id: institution.id,
-            },
+      if (!institution) {
+        throw new UnauthorizedError('Invalid credentials');
+      }
+
+      institutionId = institution.id;
+
+      user = await prisma.users.findUnique({
+        where: {
+          email_institution_id: {
+            email,
+            institution_id: institution.id,
           },
-          include: { user_roles: { include: { role: true } } },
-        });
+        },
+        include: {
+          user_roles: {
+            include: { role: true },
+          },
+        },
+      });
+      if (!user || user.status !== 'active') {
+        throw new UnauthorizedError('Invalid credentials');
       }
     } else {
       user = await prisma.users.findFirst({
-        where: { email, institution_id: null, status: 'active' },
-        include: { user_roles: { include: { role: true } } },
+        where: {
+          email,
+          institution_id: null,
+          status: 'active',
+        },
+        include: {
+          user_roles: {
+            include: { role: true },
+          },
+        },
       });
     }
 
     const passwordHash = user?.password_hash ?? dummyHash;
-    const valid = await AuthService.comparePassword(password, passwordHash);
+    const isValid = await AuthService.comparePassword(password, passwordHash);
 
-    if (!user || !valid || user.status !== 'active') {
-      logger.warn('LOGIN_FAILED', {
-        requestId,
-        reason: 'INVALID_CREDENTIALS',
-        context: institution_code ? 'INSTITUTION' : 'SUPER_ADMIN',
-      });
+    if (!user || !isValid || user.status !== 'active') {
       throw new UnauthorizedError('Invalid credentials');
     }
 
+    /**
+     * 3. Update login timestamp
+     */
     await prisma.users.update({
       where: { id: user.id },
       data: { last_login_at: new Date() },
     });
 
+    /**
+     * 4. Resolve roles
+     */
     const roles = Serializer.serializeRoles(user);
-    const permissions = await resolveUserPermissions(prisma, user.id);
 
+    /**
+     * 5. Resolve access context (🔥 IMPORTANT 🔥)
+     */
+    const accessContext = await resolveAccessContext(prisma, user.id, institutionId);
+
+    /**
+     * 6. Create JWT
+     */
     const token = AuthService.signJwt({
       sub: Serializer.bigIntToString(user.id),
       email: user.email,
-      institution_id: institutionId ?? undefined,
-      roles: roles.map((r: any) => r.name),
-      permissions,
+      institution_id: institutionId,
+      plan_code: accessContext.plan_code,
+      roles: roles.map((r:any) => r.name),
+      permissions: accessContext.permissions,
+      modules: accessContext.modules.map((m) => m.code),
       isSuperAdmin: !institution_code,
     });
 
     CookieManager.setAuthToken(reply, token);
 
-    logger.audit({
-      user_id: Serializer.bigIntToString(user.id),
-      action: 'LOGIN_SUCCESS',
-      resource: 'users',
-      status: 'success',
-      ip_address: request.ip,
-      metadata: { requestId },
-    });
-
+    /**
+     * 7. Response
+     */
     return reply.send(
       Serializer.authResponse(true, {
-        id: Serializer.bigIntToString(user.id),
+        id: user.id,
+        email: user.email,
+        institution_id: institutionId,
         roles,
-        isSuperAdmin: !institution_code,
+        permissions: accessContext.permissions,
+        modules: accessContext.modules,
       })
     );
-  } catch (error) {
-    logger.error('LOGIN_ERROR', error as Error, { requestId });
-    throw error;
+  } catch (err) {
+    logger.error('LOGIN_ERROR', err as Error, { requestId });
+    throw err;
   }
 }
 

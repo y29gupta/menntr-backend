@@ -27,3 +27,15 @@ export default fp(async function authPlugin(fastify: FastifyInstance) {
     };
   });
 });
+
+export function requirePermission(permissionCode: string) {
+  return async (request: any, reply: any) => {
+    const user = request.user;
+
+    if (!user?.permissions?.includes(permissionCode)) {
+      return reply.code(403).send({
+        message: 'Permission denied',
+      });
+    }
+  };
+}

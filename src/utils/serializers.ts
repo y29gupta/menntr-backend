@@ -31,19 +31,46 @@ export class Serializer {
     };
   }
 
+  // static authResponse(status: boolean, user: any, mustChangePassword = false) {
+  //   return {
+  //     // token,
+  //     status: status,
+  //     must_change_password: mustChangePassword,
+  //     user: {
+  //       id: this.bigIntToString(user.id),
+  //       email: user.email,
+  //       institution_id: user.institution_id,
+  //       roles: user.roles,
+  //     },
+  //   };
+  // }
+
   static authResponse(status: boolean, user: any, mustChangePassword = false) {
     return {
-      // token,
-      status: status,
-      must_change_password:mustChangePassword,
+      status,
+      must_change_password: mustChangePassword,
       user: {
         id: this.bigIntToString(user.id),
         email: user.email,
-        institution_id: user.institution_id,
+        institution_id: user.institution_id ?? null,
         roles: user.roles,
+        permissions: user.permissions,
+        modules: user.modules,
       },
     };
   }
+
+  // static serializeRoles(user: any) {
+  //   if (!user?.user_roles) return [];
+
+  //   return user.user_roles.map((ur: any) => ({
+  //     id: ur.role.id,
+  //     name: ur.role.name,
+  //     institution_id: ur.role.institution_id ?? null,
+  //     is_system_role: ur.role.is_system_role,
+  //   }));
+  // }
+
   static serializeRoles(user: any) {
     if (!user?.user_roles) return [];
 
