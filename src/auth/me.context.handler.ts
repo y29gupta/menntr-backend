@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { resolveAccessContext } from './permission.resolver';
-import { Serializer } from '../../src/utils/serializers';
+import { Serializer } from '../utils/serializers';
 
 export async function meContextHandler(request: FastifyRequest, reply: FastifyReply) {
   const prisma = request.prisma;
