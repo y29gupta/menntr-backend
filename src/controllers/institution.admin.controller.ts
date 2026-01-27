@@ -1216,3 +1216,306 @@ export async function changeUserStatus(
     });
   }
 }
+
+export async function getUserForEdit(request: FastifyRequest, reply: FastifyReply) {
+  const prisma = request.prisma;
+  const authUser = (request as any).user;
+
+  const institutionId = Number(authUser.institution_id);
+  const userId = Number((request.params as any).userId);
+
+  /* --------------------------------------------------
+   * 1️⃣ Fetch User
+   * -------------------------------------------------- */
+  const user = await prisma.users.findFirst({
+    where: {
+      id: userId,
+      institution_id: institutionId,
+    },
+  });
+
+  if (!user) {
+    return reply.code(404).send({ error: 'User not found' });
+  }
+
+  /* --------------------------------------------------
+   * 2️⃣ Fetch Role + Role Hierarchy
+   * -------------------------------------------------- */
+  const userRole = await prisma.user_roles.findFirst({
+    where: { user_id: userId },
+    include: {
+      role: {
+        include: {
+          hierarchy: true,
+        },
+      },
+    },
+  });
+
+  /* --------------------------------------------------
+   * 3️⃣ Fetch Role Permissions
+   * -------------------------------------------------- */
+  let rolePermissionIds: number[] = [];
+
+  if (userRole?.role) {
+    const rolePermissions = await prisma.role_permissions.findMany({
+      where: { role_id: userRole.role.id },
+      select: { permission_id: true },
+    });
+
+    rolePermissionIds = rolePermissions.map((rp: any) => rp.permission_id);
+  }
+
+  /* --------------------------------------------------
+   * 4️⃣ Fetch User Permission Overrides
+   * -------------------------------------------------- */
+  const overrides = await prisma.user_permission_overrides.findMany({
+    where: { user_id: userId },
+  });
+
+  const granted = overrides
+    .filter((o: any) => o.override_type === 'grant')
+    .map((o: any) => o.permission_id);
+
+  const revoked = overrides
+    .filter((o: any) => o.override_type === 'revoke')
+    .map((o: any) => o.permission_id);
+
+  /* --------------------------------------------------
+   * 5️⃣ Calculate FINAL Permission IDs
+   * -------------------------------------------------- */
+  const finalPermissionIds = [
+    ...new Set(rolePermissionIds.filter((pid) => !revoked.includes(pid)).concat(granted)),
+  ];
+
+  /* --------------------------------------------------
+   * 6️⃣ Fetch ALL Permissions (for UI tree)
+   * -------------------------------------------------- */
+  const allPermissions = await prisma.permissions.findMany({
+    include: {
+      feature: {
+        include: {
+          module: true,
+        },
+      },
+    },
+    orderBy: {
+      id: 'asc',
+    },
+  });
+
+  /* --------------------------------------------------
+   * 7️⃣ Build Module → Feature → Permission Tree
+   * -------------------------------------------------- */
+  const moduleMap = new Map<string, any>();
+
+  for (const perm of allPermissions) {
+    const module = perm.feature?.module;
+    const feature = perm.feature;
+
+    if (!module || !feature) continue;
+
+    // Module
+    if (!moduleMap.has(module.code)) {
+      moduleMap.set(module.code, {
+        moduleCode: module.code,
+        moduleName: module.name,
+        features: new Map<string, any>(),
+      });
+    }
+
+    const moduleEntry = moduleMap.get(module.code);
+
+    // Feature
+    if (!moduleEntry.features.has(feature.code)) {
+      moduleEntry.features.set(feature.code, {
+        featureCode: feature.code,
+        featureName: feature.name,
+        permissions: [],
+      });
+    }
+
+    const featureEntry = moduleEntry.features.get(feature.code);
+
+    // Permission
+    featureEntry.permissions.push({
+      permissionId: perm.id,
+      permissionName: perm.permission_name,
+      checked: finalPermissionIds.includes(perm.id),
+    });
+  }
+
+  /* --------------------------------------------------
+   * 8️⃣ Convert Maps → Arrays
+   * -------------------------------------------------- */
+  const permissionsTree = Array.from(moduleMap.values()).map((module) => ({
+    moduleCode: module.moduleCode,
+    moduleName: module.moduleName,
+    features: Array.from(module.features.values()),
+  }));
+
+  /* --------------------------------------------------
+   * 9️⃣ Final Response
+   * -------------------------------------------------- */
+  return reply.send({
+    user: {
+      id: user.id,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      status: user.status,
+    },
+    role: userRole?.role
+      ? {
+          id: userRole.role.id,
+          name: userRole.role.name,
+          roleHierarchyId: userRole.role.hierarchy?.id ?? null,
+          roleHierarchyName: userRole.role.hierarchy?.name ?? null,
+        }
+      : null,
+    permissions: permissionsTree,
+  });
+}
+
+export async function updateUserFlexible(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    const prisma = request.prisma;
+    const authUser = (request as any).user;
+
+    const institutionId = Number(authUser.institution_id);
+    const updatedBy = authUser?.sub ? BigInt(authUser.sub) : null;
+
+    const userId = Number((request.params as any).userId);
+    const payload = (request.body as any).payload;
+
+    /* --------------------------------------------------
+     * 1️⃣ Validate User (users)
+     * -------------------------------------------------- */
+    const user = await prisma.users.findFirst({
+      where: {
+        id: userId,
+        institution_id: institutionId,
+      },
+    });
+
+    if (!user) {
+      return reply.code(404).send({
+        error: 'User not found',
+      });
+    }
+
+    /* --------------------------------------------------
+     * 2️⃣ Fetch Role + Role Permissions
+     * -------------------------------------------------- */
+    let rolePermissions: number[] = [];
+
+    if (payload.roleId) {
+      const role = await prisma.roles.findFirst({
+        where: {
+          id: payload.roleId,
+          institution_id: institutionId,
+        },
+      });
+
+      if (!role) {
+        return reply.code(400).send({
+          error: 'Invalid role for this institution',
+        });
+      }
+
+      const rolePerms = await prisma.role_permissions.findMany({
+        where: { role_id: payload.roleId },
+        select: { permission_id: true },
+      });
+
+      rolePermissions = rolePerms.map((rp: any) => rp.permission_id);
+    }
+
+    /* --------------------------------------------------
+     * 3️⃣ Permission DIFF Logic (CORE)
+     * -------------------------------------------------- */
+    const permissionsToGrant = payload.permissionIds.filter(
+      (pid: number) => !rolePermissions.includes(pid)
+    );
+
+    const permissionsToRevoke = rolePermissions.filter(
+      (pid: number) => !payload.permissionIds.includes(pid)
+    );
+
+    /* --------------------------------------------------
+     * 4️⃣ Transaction (ALL OR NOTHING)
+     * -------------------------------------------------- */
+    await prisma.$transaction(async (tx: any) => {
+      /* 4.1 Update user basic details (users) */
+      await tx.users.update({
+        where: { id: userId },
+        data: {
+          first_name: payload.firstName,
+          last_name: payload.lastName,
+          updated_at: new Date(),
+        },
+      });
+
+      /* 4.2 Update role (user_roles) */
+      await tx.user_roles.deleteMany({
+        where: { user_id: userId },
+      });
+
+      if (payload.roleId) {
+        await tx.user_roles.create({
+          data: {
+            user_id: userId,
+            role_id: payload.roleId,
+            assigned_by: updatedBy,
+            assigned_at: new Date(),
+          },
+        });
+      }
+
+      /* 4.3 Reset old permission overrides */
+      await tx.user_permission_overrides.deleteMany({
+        where: { user_id: userId },
+      });
+
+      /* 4.4 Insert permission GRANTS */
+      if (permissionsToGrant.length > 0) {
+        await tx.user_permission_overrides.createMany({
+          data: permissionsToGrant.map((pid: number) => ({
+            user_id: userId,
+            permission_id: pid,
+            override_type: 'grant',
+            reason: 'Permission granted during user update',
+            granted_by: updatedBy,
+            granted_at: new Date(),
+          })),
+        });
+      }
+
+      /* 4.5 Insert permission REVOKES */
+      if (permissionsToRevoke.length > 0) {
+        await tx.user_permission_overrides.createMany({
+          data: permissionsToRevoke.map((pid: number) => ({
+            user_id: userId,
+            permission_id: pid,
+            override_type: 'revoke',
+            reason: 'Permission revoked during user update',
+            granted_by: updatedBy,
+            granted_at: new Date(),
+          })),
+        });
+      }
+    });
+
+    /* --------------------------------------------------
+     * 5️⃣ Final Response
+     * -------------------------------------------------- */
+    return reply.send({
+      message: 'User updated successfully',
+    });
+  } catch (err) {
+    request.log.error(err, 'updateUserFlexible failed');
+    return reply.code(500).send({
+      error: 'Internal server error',
+    });
+  }
+}

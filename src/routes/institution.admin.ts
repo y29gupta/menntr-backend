@@ -10,7 +10,9 @@ import {
   getModulesHandler,
   getRolesbasedOnRoleHierarchy,
   getRolesHierarchy,
+  getUserForEdit,
   listUsers,
+  updateUserFlexible,
 } from '../controllers/institution.admin.controller';
 import { authGuard } from '../hooks/auth.guard';
 
@@ -25,4 +27,6 @@ export async function institutionAdminRoutes(fastify: FastifyInstance) {
   fastify.get('/institutionsadmin/user-management/users', listUsers);
   fastify.post('/users/bulk-upload', bulkCreateUsersFromExcel);
   fastify.patch('/users/status/:id', changeUserStatus);
+  fastify.get('/users/edit/:userId', getUserForEdit);
+  fastify.put('/users/edit/:userId', updateUserFlexible);
 }
