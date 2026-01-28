@@ -23,7 +23,7 @@ export default fp(async function authPlugin(fastify: FastifyInstance) {
       sub: payload.sub,
       email: payload.email,
       roles: Array.isArray(payload.roles) ? payload.roles : [],
-      institutionId: payload.institutionId,
+      institution_id: payload.institution_id,
     };
   });
 });

@@ -16,7 +16,7 @@ declare module 'fastify' {
       sub: string;
       email: string;
       roles: string[];
-      institutionId: number;
+      institution_id: number;
     };
   }
 }

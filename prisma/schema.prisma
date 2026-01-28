@@ -6,257 +6,648 @@ datasource db {
   provider = "postgresql"
 }
 
-/**
- * =========================
- * ENUMS
- * =========================
- */
+//////////////////////
+// ENUMS
+//////////////////////
 
-enum UserStatus {
+enum institution_status {
   active
-  invited
-  disabled
-}
-
-enum InstitutionStatus {
-  active
-  trial
   suspended
+  cancelled
+  trial
 }
 
-enum TokenType {
-  one_time_login
-  refresh
+enum user_status {
+  active
+  inactive
+  suspended
+  deleted
+}
+
+enum token_type {
+  email_verification
   password_reset
+  api_key
+  session
 }
 
-/**
- * =========================
- * MODELS
- * =========================
- */
+enum AssessmentStatus {
+  draft
+  published
+  active
+  closed
+  archived
+}
 
-model Plan {
-  id                   Int           @id @default(autoincrement())
-  code                 String        @unique
+enum QuestionDifficulty {
+  easy
+  medium
+  hard
+  expert
+}
+
+enum QuestionType {
+  single_correct
+  multiple_correct
+  true_false
+}
+
+enum AttemptStatus {
+  not_started
+  in_progress
+  submitted
+  evaluated
+  expired
+}
+
+//////////////////////
+// CORE TABLES
+//////////////////////
+
+model plans {
+  id                   Int      @id @default(autoincrement())
+  code                 String   @unique
   name                 String
-  priceMonthly         Decimal?      @map("price_monthly")
-  priceYearly          Decimal?      @map("price_yearly")
-  maxStudents          Int?          @map("max_students")
-  isPublic             Boolean       @default(true) @map("is_public")
+  price_monthly        Decimal?
+  price_yearly         Decimal?
+  max_students         Int?
+  max_admins           Int?
+  is_public            Boolean  @default(true)
   description          String?
-  createdAt            DateTime      @default(now()) @map("created_at")
-  storage_gb           Int?          @default(1)
-  ai_queries_per_month Int?          @default(0)
-  institutions         Institution[]
-  planModules          PlanModule[]
-  planFeatures         PlanFeature[]
+  storage_gb           Int      @default(1)
+  ai_queries_per_month Int      @default(0)
+  created_at           DateTime @default(now())
 
-  @@map("plans")
+  institutions  institutions[]
+  plan_modules  plan_modules[]
+  plan_features plan_features[]
 }
 
-model Module {
-  id             Int                 @id @default(autoincrement())
-  code           String              @unique
-  name           String
-  description    String?
-  icon           String?
-  category       String?
-  isCore         Boolean             @default(false) @map("is_core")
-  isSystemModule Boolean             @default(false) @map("is_system_module")
-  sortOrder      Int                 @default(0) @map("sort_order")
-  createdAt      DateTime            @default(now()) @map("created_at")
-  features       Feature[]
-  institutions   InstitutionModule[]
-  planModules    PlanModule[]
+model modules {
+  id               Int      @id @default(autoincrement())
+  code             String   @unique
+  name             String
+  description      String?
+  icon             String?
+  category         String?
+  is_core          Boolean  @default(false)
+  is_system_module Boolean  @default(false)
+  sort_order       Int      @default(0)
+  created_at       DateTime @default(now())
 
-  @@map("modules")
+  features            features[]
+  plan_modules        plan_modules[]
+  institution_modules institution_modules[]
 }
 
-model Feature {
+model features {
+  id                Int      @id @default(autoincrement())
+  code              String   @unique
+  name              String
+  description       String?
+  module_id         Int
+  min_plan_required String?
+  sort_order        Int      @default(0)
+  created_at        DateTime @default(now())
+
+  module        modules         @relation(fields: [module_id], references: [id])
+  permissions   permissions[]
+  plan_features plan_features[]
+  assessments   assessments[]
+}
+
+model permissions {
   id              Int      @id @default(autoincrement())
-  code            String   @unique
-  name            String
+  feature_code    String
+  permission_code String   @unique
+  permission_name String
+  action_type     String?
   description     String?
-  moduleId        Int      @map("module_id")
-  minPlanRequired String?  @map("min_plan_required")
-  sortOrder       Int      @default(0) @map("sort_order")
-  createdAt       DateTime @default(now()) @map("created_at")
+  created_at      DateTime @default(now())
 
-  module       Module        @relation(fields: [moduleId], references: [id])
-  permissions  Permission[]  @relation("FeaturePermissions")
-  planFeatures PlanFeature[] @relation("FeaturePlanFeatures")
-
-  @@map("features")
+  feature          features           @relation(fields: [feature_code], references: [code])
+  role_permissions role_permissions[]
+  userPermissionOverrides user_permission_overrides[]
 }
 
-model PlanModule {
-  planId   Int     @map("plan_id")
-  moduleId Int     @map("module_id")
-  included Boolean @default(true)
-  module   Module  @relation(fields: [moduleId], references: [id])
-  plan     Plan    @relation(fields: [planId], references: [id])
+model institutions {
+  id            Int                @id @default(autoincrement())
+  name          String
+  code          String             @unique
+  subdomain     String?
+  contact_email String
+  plan_id       Int?
+  status        institution_status @default(active)
+  trial_ends_at DateTime?
+  metadata      Json               @default("{}")
+  created_at    DateTime           @default(now())
+  updated_at    DateTime           @updatedAt
 
-  @@id([planId, moduleId])
-  @@map("plan_modules")
+  plan                plans?                @relation(fields: [plan_id], references: [id])
+  users               users[]
+  roles               roles[]
+  institution_modules institution_modules[]
+  batches             batches[]
+  question_bank       question_bank[]
+  assessments         assessments[]
+  difficulty_scoring  difficulty_scoring[]
 }
 
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model PlanFeature {
-  planCode    String  @map("plan_code")
-  featureCode String  @map("feature_code")
-  included    Boolean @default(true)
-  usageLimit  Int?    @map("usage_limit")
+//////////////////////
+// ROLE HIERARCHY
+//////////////////////
 
-  plan    Plan    @relation(fields: [planCode], references: [code])
-  feature Feature @relation("FeaturePlanFeatures", fields: [featureCode], references: [code])
-
-  @@id([planCode, featureCode])
-  @@map("plan_features")
-}
-
-model Institution {
-  id           Int                 @id @default(autoincrement())
-  name         String
-  code         String              @unique
-  subdomain    String?
-  contactEmail String              @map("contact_email")
-  planId       Int?                @map("plan_id")
-  status       InstitutionStatus   @default(active)
-  trialEndsAt  DateTime?           @map("trial_ends_at")
-  metadata     Json                @default("{}")
-  createdAt    DateTime            @default(now()) @map("created_at")
-  updatedAt    DateTime            @updatedAt @map("updated_at")
-  modules      InstitutionModule[]
-  plan         Plan?               @relation(fields: [planId], references: [id])
-  roles        Role[]
-  users        User[]
-
-  @@map("institutions")
-}
-
-model InstitutionModule {
-  institutionId Int         @map("institution_id")
-  moduleId      Int         @map("module_id")
-  enabled       Boolean     @default(true)
-  configuredAt  DateTime    @default(now()) @map("configured_at")
-  institution   Institution @relation(fields: [institutionId], references: [id])
-  module        Module      @relation(fields: [moduleId], references: [id])
-
-  @@id([institutionId, moduleId])
-  @@map("institution_modules")
-}
-
-model Permission {
-  id             Int      @id @default(autoincrement())
-  featureCode    String   @map("feature_code")
-  permissionCode String   @map("permission_code")
-  permissionName String   @map("permission_name")
-  actionType     String?  @map("action_type")
-  description    String?
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  feature Feature          @relation("FeaturePermissions", fields: [featureCode], references: [code])
-  roles   RolePermission[]
-
-  @@map("permissions")
-}
-
-model Role {
-  id   Int    @id @default(autoincrement())
-  name String
-
-  code String?
-
-  institutionId   Int? @map("institution_id")
-  parentId        Int? @map("parent_id")
-  roleHierarchyId Int? @map("role_hierarchy_id")
-
-  isSystemRole Boolean @default(false) @map("is_system_role")
-
-  institution Institution? @relation(fields: [institutionId], references: [id])
-  parent      Role?        @relation("RoleParent", fields: [parentId], references: [id])
-  children    Role[]       @relation("RoleParent")
-
-  hierarchy RoleHierarchy? @relation(fields: [roleHierarchyId], references: [id])
-
-  users       UserRole[]
-  permissions RolePermission[]
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("roles")
-}
-
-model RolePermission {
-  roleId       Int        @map("role_id")
-  permissionId Int        @map("permission_id")
-  permission   Permission @relation(fields: [permissionId], references: [id])
-  role         Role       @relation(fields: [roleId], references: [id])
-
-  @@id([roleId, permissionId])
-  @@map("role_permissions")
-}
-
-model User {
-  id                 BigInt       @id @default(autoincrement())
-  institutionId      Int?         @map("institution_id")
-  email              String
-  passwordHash       String?      @map("password_hash")
-  emailVerified      Boolean      @default(false) @map("email_verified")
-  mustChangePassword Boolean      @default(true) @map("must_change_password")
-  firstName          String?      @map("first_name")
-  lastName           String?      @map("last_name")
-  avatarUrl          String?      @map("avatar_url")
-  status             UserStatus   @default(active)
-  lastLoginAt        DateTime?    @map("last_login_at")
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
-  tokens             AuthToken[]
-  roles              UserRole[]
-  institution        Institution? @relation(fields: [institutionId], references: [id])
-
-  @@unique([email, institutionId])
-  @@map("users")
-}
-
-model UserRole {
-  userId     BigInt   @map("user_id")
-  roleId     Int      @map("role_id")
-  assignedAt DateTime @default(now()) @map("assigned_at")
-  assignedBy BigInt?  @map("assigned_by")
-  role       Role     @relation(fields: [roleId], references: [id])
-  user       User     @relation(fields: [userId], references: [id])
-
-  @@id([userId, roleId])
-  @@map("user_roles")
-}
-
-model AuthToken {
-  id        Int       @id @default(autoincrement())
-  userId    BigInt    @map("user_id")
-  tokenHash String    @map("token_hash")
-  type      TokenType
-  expiresAt DateTime  @map("expires_at")
-  usedAt    DateTime? @map("used_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  user      User      @relation(fields: [userId], references: [id])
-
-  @@map("auth_tokens")
-}
-
-model RoleHierarchy {
-  id          Int     @id @default(autoincrement())
-  name        String  @unique
+model role_hierarchy {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
   description String?
   level       Int
-  active      Boolean @default(true)
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 
-  roles Role[]
+  roles roles[]
+}
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+//////////////////////
+// USERS & ROLES
+//////////////////////
 
-  @@map("role_hierarchy")
+model users {
+  id                   BigInt      @id @default(autoincrement())
+  institution_id       Int?
+  email                String
+  password_hash        String?
+  email_verified       Boolean     @default(false)
+  must_change_password Boolean     @default(true)
+  first_name           String?
+  last_name            String?
+  avatar_url           String?
+  status               user_status @default(active)
+  last_login_at        DateTime?
+  created_at           DateTime    @default(now())
+  updated_at           DateTime    @updatedAt
+
+  institution   institutions?    @relation(fields: [institution_id], references: [id])
+  user_roles    user_roles[]
+  auth_tokens   auth_tokens[]
+  batches       batches[]
+  batchStudents batch_students[]
+
+  permissionOverrides        user_permission_overrides[] @relation("UserPermissionOverrides_User")
+  permissionGrantedOverrides user_permission_overrides[] @relation("UserPermissionOverrides_GrantedBy")
+  permissionRevokedOverrides user_permission_overrides[] @relation("UserPermissionOverrides_RevokedBy")
+
+  // Question Bank
+  created_questions  question_bank[] @relation("QuestionCreator")
+  verified_questions question_bank[] @relation("QuestionVerifier")
+
+  // Assessments
+  created_assessments assessments[] @relation("AssessmentCreator")
+
+  // Assignment tracking
+  assigned_assessment_batches  assessment_batches[]  @relation("AssessmentBatchAssigner")
+  assigned_assessment_students assessment_students[] @relation("AssessmentAssignedBy")
+
+  // Student attempts
+  assessment_attempts assessment_attempts[] @relation("AssessmentStudent")
+
+  // Student - assigned assessments
+  assessment_assignments assessment_students[] @relation("AssessmentStudentAssignment")
+
+
+
+  @@unique([email, institution_id])
+}
+
+model roles {
+  id                Int      @id @default(autoincrement())
+  code              String?
+  name              String
+  description       String?
+  institution_id    Int?
+  parent_id         Int?
+  role_hierarchy_id Int?
+  is_system_role    Boolean  @default(false)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  institution institutions?   @relation(fields: [institution_id], references: [id])
+  parent      roles?          @relation("role_parent", fields: [parent_id], references: [id])
+  children    roles[]         @relation("role_parent")
+  hierarchy   role_hierarchy? @relation(fields: [role_hierarchy_id], references: [id])
+
+  user_roles       user_roles[]
+  role_permissions role_permissions[]
+
+  category_batches   batches[] @relation("BatchCategoryRole")
+  department_batches batches[] @relation("BatchDepartmentRole")
+}
+
+model user_roles {
+  user_id     BigInt
+  role_id     Int
+  assigned_at DateTime @default(now())
+  assigned_by BigInt?
+
+  user users @relation(fields: [user_id], references: [id])
+  role roles @relation(fields: [role_id], references: [id])
+
+  @@id([user_id, role_id])
+}
+
+model auth_tokens {
+  id         Int        @id @default(autoincrement())
+  user_id    BigInt
+  token_hash String
+  type       token_type
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime   @default(now())
+
+  user users @relation(fields: [user_id], references: [id])
+}
+
+//////////////////////
+// JUNCTION TABLES
+//////////////////////
+
+model plan_modules {
+  plan_id   Int
+  module_id Int
+  included  Boolean @default(true)
+
+  plan   plans   @relation(fields: [plan_id], references: [id])
+  module modules @relation(fields: [module_id], references: [id])
+
+  @@id([plan_id, module_id])
+}
+
+model plan_features {
+  plan_code    String
+  feature_code String
+  included     Boolean @default(true)
+  usage_limit  Int?
+
+  plan    plans    @relation(fields: [plan_code], references: [code])
+  feature features @relation(fields: [feature_code], references: [code])
+
+  @@id([plan_code, feature_code])
+}
+
+model institution_modules {
+  institution_id Int
+  module_id      Int
+  enabled        Boolean  @default(true)
+  configured_at  DateTime @default(now())
+
+  institution institutions @relation(fields: [institution_id], references: [id])
+  module      modules      @relation(fields: [module_id], references: [id])
+
+  @@id([institution_id, module_id])
+}
+
+model role_permissions {
+  role_id       Int
+  permission_id Int
+
+  role       roles       @relation(fields: [role_id], references: [id])
+  permission permissions @relation(fields: [permission_id], references: [id])
+
+  @@id([role_id, permission_id])
+}
+
+model batches {
+  id             Int    @id @default(autoincrement())
+  institution_id Int
+  name           String
+  code           String
+
+  // Role hierarchy links
+  category_role_id   Int?
+  department_role_id Int
+
+  // Academic info
+  academic_year Int
+  semester      Int?
+  start_date    DateTime?
+  end_date      DateTime?
+
+  // Coordinator (Faculty)
+  coordinator_id BigInt?
+
+  metadata  Json    @default("{}")
+  is_active Boolean @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  institution institutions @relation(fields: [institution_id], references: [id])
+
+  category_role   roles? @relation("BatchCategoryRole", fields: [category_role_id], references: [id])
+  department_role roles  @relation("BatchDepartmentRole", fields: [department_role_id], references: [id])
+
+  coordinator users? @relation(fields: [coordinator_id], references: [id])
+
+  students           batch_students[]
+  assessment_batches assessment_batches[]
+
+  @@unique([institution_id, code])
+}
+
+model batch_students {
+  batch_id        Int
+  student_id      BigInt
+  enrollment_date DateTime @default(now())
+  roll_number     String?
+  is_active       Boolean  @default(true)
+  metadata        Json     @default("{}")
+
+  batch   batches @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  student users   @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  @@id([batch_id, student_id])
+}
+
+model question_bank {
+  id             BigInt @id @default(autoincrement())
+  institution_id Int
+  created_by     BigInt
+
+  question_text    String
+  question_type    QuestionType       @default(single_correct)
+  difficulty_level QuestionDifficulty @default(medium)
+
+  default_points     Int  @default(1)
+  negative_points    Int  @default(0)
+  time_limit_seconds Int?
+
+  explanation   String?
+  hints         String?
+  media_url     String?
+  reference_url String?
+
+  metadata Json     @default("{}")
+  tags     String[]
+
+  usage_count    Int      @default(0)
+  avg_accuracy   Decimal? @db.Decimal(5, 2)
+  avg_time_taken Int?
+
+  is_active   Boolean   @default(true)
+  is_verified Boolean   @default(false)
+  verified_by BigInt?
+  verified_at DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  institution institutions @relation(fields: [institution_id], references: [id])
+  creator     users        @relation("QuestionCreator", fields: [created_by], references: [id])
+  verifier    users?       @relation("QuestionVerifier", fields: [verified_by], references: [id])
+
+  options              question_options[]
+  assessment_questions assessment_questions[]
+  attempt_answers      attempt_answers[]
+}
+
+model question_options {
+  id           BigInt  @id @default(autoincrement())
+  question_id  BigInt
+  option_text  String
+  option_label String
+  is_correct   Boolean @default(false)
+  explanation  String?
+  media_url    String?
+  sort_order   Int     @default(0)
+
+  created_at DateTime @default(now())
+
+  question question_bank @relation(fields: [question_id], references: [id], onDelete: Cascade)
+}
+
+model assessments {
+  id             BigInt  @id @default(autoincrement())
+  institution_id Int
+  feature_id     Int
+  title          String
+  description    String?
+  created_by     BigInt
+
+  total_marks      Int  @default(0)
+  passing_marks    Int?
+  duration_minutes Int
+
+  instructions String?
+  status       AssessmentStatus @default(draft)
+
+  start_time DateTime?
+  end_time   DateTime?
+
+  auto_submit            Boolean @default(true)
+  shuffle_questions      Boolean @default(false)
+  shuffle_options        Boolean @default(false)
+  allow_question_skip    Boolean @default(true)
+  allow_backtrack        Boolean @default(true)
+  show_results_immediate Boolean @default(false)
+  show_correct_answers   Boolean @default(false)
+  show_solutions         Boolean @default(false)
+  allow_review           Boolean @default(true)
+
+  max_attempts       Int  @default(1)
+  attempts_gap_hours Int?
+
+  proctoring_enabled Boolean @default(false)
+  require_webcam     Boolean @default(false)
+  tab_switch_limit   Int?
+  copy_paste_allowed Boolean @default(false)
+
+  metadata Json     @default("{}")
+  tags     String[]
+
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  published_at DateTime?
+
+  institution institutions @relation(fields: [institution_id], references: [id])
+  feature     features     @relation(fields: [feature_id], references: [id])
+  creator     users        @relation("AssessmentCreator", fields: [created_by], references: [id])
+
+  questions assessment_questions[]
+  batches   assessment_batches[]
+  attempts  assessment_attempts[]
+  students  assessment_students[]
+}
+
+model assessment_questions {
+  id            BigInt @id @default(autoincrement())
+  assessment_id BigInt
+  question_id   BigInt
+
+  points          Int
+  negative_points Int     @default(0)
+  sort_order      Int     @default(0)
+  is_mandatory    Boolean @default(true)
+  section_name    String?
+
+  added_at DateTime @default(now())
+
+  assessment assessments   @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  question   question_bank @relation(fields: [question_id], references: [id])
+
+  attempt_answers attempt_answers[]
+
+  @@unique([assessment_id, question_id])
+}
+
+model assessment_batches {
+  assessment_id BigInt
+  batch_id      Int
+  assigned_by   BigInt?
+
+  assigned_at DateTime @default(now())
+
+  assessment assessments @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  batch      batches     @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  assigner   users?      @relation("AssessmentBatchAssigner", fields: [assigned_by], references: [id])
+
+  @@id([assessment_id, batch_id])
+}
+
+model assessment_students {
+  assessment_id BigInt
+  student_id    BigInt
+  assigned_by   BigInt?
+  assigned_at   DateTime @default(now())
+  notes         String?
+
+  assessment assessments @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+
+  student  users  @relation("AssessmentStudentAssignment", fields: [student_id], references: [id], onDelete: Cascade)
+  assigner users? @relation("AssessmentAssignedBy", fields: [assigned_by], references: [id])
+
+  @@id([assessment_id, student_id])
+}
+
+model assessment_attempts {
+  id             BigInt @id @default(autoincrement())
+  assessment_id  BigInt
+  student_id     BigInt
+  attempt_number Int    @default(1)
+
+  started_at         DateTime  @default(now())
+  submitted_at       DateTime?
+  time_taken_seconds Int?
+
+  auto_submitted Boolean       @default(false)
+  status         AttemptStatus @default(not_started)
+
+  total_questions    Int @default(0)
+  answered_questions Int @default(0)
+  correct_answers    Int @default(0)
+  wrong_answers      Int @default(0)
+  skipped_questions  Int @default(0)
+
+  score_obtained Decimal  @db.Decimal(10, 2)
+  total_score    Decimal  @db.Decimal(10, 2)
+  percentage     Decimal? @db.Decimal(5, 2)
+  rank           Int?
+  percentile     Decimal?
+
+  tab_switches Int  @default(0)
+  violations   Json @default("[]")
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  assessment assessments @relation(fields: [assessment_id], references: [id])
+  student    users       @relation("AssessmentStudent", fields: [student_id], references: [id])
+
+  answers attempt_answers[]
+}
+
+model attempt_answers {
+  id                     BigInt @id @default(autoincrement())
+  attempt_id             BigInt
+  assessment_question_id BigInt
+  question_id            BigInt
+
+  selected_option_ids BigInt[]
+  is_correct          Boolean?
+  points_earned       Decimal  @default(0)
+
+  time_taken_seconds Int?
+  answered_at        DateTime?
+
+  is_flagged  Boolean @default(false)
+  visit_count Int     @default(0)
+
+  metadata Json @default("{}")
+
+  attempt             assessment_attempts  @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+  assessment_question assessment_questions @relation(fields: [assessment_question_id], references: [id])
+  question            question_bank        @relation(fields: [question_id], references: [id])
+
+  @@unique([attempt_id, assessment_question_id])
+}
+
+model difficulty_scoring {
+  id               Int                @id @default(autoincrement())
+  institution_id   Int
+  difficulty_level QuestionDifficulty
+  default_points   Int
+  negative_points  Int                @default(0)
+  time_weight      Decimal            @db.Decimal(3, 2)
+  description      String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  institution institutions @relation(fields: [institution_id], references: [id])
+
+  @@unique([institution_id, difficulty_level])
+}
+
+
+model institution_members {
+  id            Int      @id @default(autoincrement())
+  first_name    String
+  last_name     String
+  email         String   @unique
+  phone_number  String
+  profile_photo String?
+
+  active        Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+}
+
+
+enum PermissionOverrideType {
+  grant
+  revoke
+}
+
+
+model user_permission_overrides {
+  id             Int      @id @default(autoincrement())
+  user_id        BigInt
+  permission_id  Int
+  override_type  PermissionOverrideType
+  reason         String?
+  granted_by     BigInt?
+  granted_at     DateTime @default(now()) @db.Timestamp(3)
+  expires_at     DateTime? @db.Timestamp(3)
+  revoked_at     DateTime? @db.Timestamp(3)
+  revoked_by     BigInt?
+
+  user        users       @relation("UserPermissionOverrides_User", fields: [user_id], references: [id], onDelete: Cascade)
+  permission permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  grantedBy   users?      @relation("UserPermissionOverrides_GrantedBy", fields: [granted_by], references: [id], onDelete: SetNull)
+  revokedBy   users?      @relation("UserPermissionOverrides_RevokedBy", fields: [revoked_by], references: [id], onDelete: SetNull)
+
+  @@unique([user_id, permission_id], name: "user_permission_overrides_unique")
+  @@map("user_permission_overrides")
 }

@@ -22,20 +22,20 @@ export async function getHierarchy(
   reply: FastifyReply
 ) {
   const prisma = req.prisma;
-  const userId = BigInt((req as any).user.sub);
+  const user_id = BigInt((req as any).user.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { institutionId: true },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
   });
 
-  if (!user?.institutionId) {
+  if (!user?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
   const hierarchy = await buildOrganizationHierarchy(
     prisma,
-    user.institutionId
+    user.institution_id
   );
 
   reply.send(hierarchy);
@@ -137,20 +137,20 @@ export async function getOrganizationTree(
   reply: FastifyReply
 ) {
   const prisma = req.prisma;
-  const userId = BigInt((req as any).user.sub);
+  const user_id = BigInt((req as any).user.sub);
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { institutionId: true },
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
   });
 
-  if (!user?.institutionId) {
+  if (!user?.institution_id) {
     throw new ForbiddenError('No institution linked');
   }
 
   const tree = await buildOrganizationTree(
     prisma,
-    user.institutionId
+    user.institution_id
   );
 
   reply.send(tree);

@@ -15,8 +15,8 @@ import { config } from '../config';
 const CreateSuperAdminSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
+  first_name: z.string().optional(),
+  last_name: z.string().optional(),
 });
 
 export async function createSuperAdmin(
@@ -28,7 +28,7 @@ export async function createSuperAdmin(
   try {
     logger.info('Creating super admin', {
       ip: request.ip,
-      userAgent: request.headers['user-agent'],
+      user_agent: request.headers['user-agent'],
     });
 
 
@@ -50,11 +50,11 @@ export async function createSuperAdmin(
       );
     }
 
-    const { email, password, firstName, lastName } = parsed.data;
+    const { email, password, first_name, last_name } = parsed.data;
     const prisma = request.prisma;
 
 
-    const existing = await prisma.user.findFirst({ where: { email } });
+    const existing = await prisma.users.findFirst({ where: { email } });
     if (existing) {
       throw new ConflictError(
         'An account with this email already exists'
@@ -64,22 +64,22 @@ export async function createSuperAdmin(
 
     const passwordHash = await AuthService.hashPassword(password);
 
-    const created = await prisma.user.create({
+    const created = await prisma.users.create({
       data: {
         email,
-        passwordHash,
-        firstName: firstName ?? null,
-        lastName: lastName ?? null,
+        password_hash:passwordHash,
+        first_name: first_name ?? null,
+        last_name: last_name ?? null,
         status: 'active',
-        mustChangePassword: false,
+        must_change_password: false,
       },
     });
 
 
-    const superRole = await prisma.role.findFirst({
+    const superRole = await prisma.roles.findFirst({
       where: {
         name: 'Super Admin',
-        isSystemRole: true,
+        is_system_role: true,
       },
     });
 
@@ -90,19 +90,19 @@ export async function createSuperAdmin(
       );
     }
 
-    await prisma.userRole.create({
+    await prisma.user_roles.create({
       data: {
-        userId: created.id,
-        roleId: superRole.id,
-        assignedBy: created.id,
+        user_id: created.id,
+        role_id: superRole.id,
+        assigned_by: created.id,
       },
     });
 
 
-    const userWithRoles = await prisma.user.findUnique({
+    const userWithRoles = await prisma.users.findUnique({
       where: { id: created.id },
       include: {
-        roles: {
+        user_roles: {
           include: { role: true },
         },
       },
@@ -120,13 +120,13 @@ export async function createSuperAdmin(
     const jwtToken = AuthService.signJwt(payload);
 
     logger.audit({
-      userId: payload.sub,
+      user_id: payload.sub,
       action: 'CREATE_SUPER_ADMIN',
       resource: 'users',
-      resourceId: payload.sub,
+      resource_id: payload.sub,
       status: 'success',
-      ipAddress: request.ip,
-      userAgent: request.headers['user-agent'],
+      ip_address: request.ip,
+      user_agent: request.headers['user-agent'],
     });
 
     return reply.code(201).send({

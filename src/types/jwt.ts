@@ -2,7 +2,7 @@ export interface AuthJwtPayload {
   sub: string;
   email: string;
   roles: string[];
-  institutionId: number;
+  institution_id: number;
   iat?: number;
   exp?: number;
   aud?: string;
