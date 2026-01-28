@@ -117,6 +117,8 @@ model users {
   last_login_at                                                         DateTime?
   created_at                                                            DateTime                    @default(now())
   updated_at                                                            DateTime                    @updatedAt
+  gender                                                                String?
+  phone                                                                 String?
   assessment_attempts                                                   assessment_attempts[]       @relation("AssessmentStudent")
   assigned_assessment_batches                                           assessment_batches[]        @relation("AssessmentBatchAssigner")
   assigned_assessment_students                                          assessment_students[]       @relation("AssessmentAssignedBy")
@@ -132,8 +134,7 @@ model users {
   user_permission_overrides_user_permission_overrides_user_idTousers    user_permission_overrides[] @relation("user_permission_overrides_user_idTousers")
   user_roles                                                            user_roles[]
   institution                                                           institutions?               @relation(fields: [institution_id], references: [id])
-  phone              String?
-  gender             String?
+
   @@unique([email, institution_id])
 }
 
@@ -151,6 +152,7 @@ model roles {
   category_batches   batches[]          @relation("BatchCategoryRole")
   department_batches batches[]          @relation("BatchDepartmentRole")
   role_permissions   role_permissions[]
+  role_programs      role_programs[]
   institution        institutions?      @relation(fields: [institution_id], references: [id])
   parent             roles?             @relation("role_parent", fields: [parent_id], references: [id])
   children           roles[]            @relation("role_parent")
@@ -238,23 +240,24 @@ model batches {
   created_at         DateTime             @default(now())
   updated_at         DateTime             @updatedAt
   assessment_batches assessment_batches[]
+  sections           batch_sections[]
   students           batch_students[]
   category_role      roles?               @relation("BatchCategoryRole", fields: [category_role_id], references: [id])
   coordinator        users?               @relation(fields: [coordinator_id], references: [id])
   department_role    roles                @relation("BatchDepartmentRole", fields: [department_role_id], references: [id])
   institution        institutions         @relation(fields: [institution_id], references: [id])
-  sections batch_sections[]
+
   @@unique([institution_id, code])
 }
 
 model batch_students {
   batch_id        Int
   student_id      BigInt
-  section_id      Int?
   enrollment_date DateTime @default(now())
   roll_number     String?
   is_active       Boolean  @default(true)
   metadata        Json     @default("{}")
+  section_id      Int?
   batch           batches  @relation(fields: [batch_id], references: [id], onDelete: Cascade)
   student         users    @relation(fields: [student_id], references: [id], onDelete: Cascade)
 
@@ -293,7 +296,7 @@ model question_bank {
   verifier             users?                 @relation("QuestionVerifier", fields: [verified_by], references: [id])
   options              question_options[]
 
-  @@unique([institution_id, question_text, question_type], name:"uq_question_per_institution")
+  @@unique([institution_id, question_text, question_type], name: "uq_question_per_institution")
 }
 
 model question_options {
@@ -308,14 +311,14 @@ model question_options {
   created_at   DateTime      @default(now())
   question     question_bank @relation(fields: [question_id], references: [id], onDelete: Cascade)
 }
+
 model batch_sections {
   id         Int      @id @default(autoincrement())
   batch_id   Int
   name       String
   sort_order Int
   created_at DateTime @default(now())
-
-  batch batches @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  batch      batches  @relation(fields: [batch_id], references: [id], onDelete: Cascade)
 
   @@unique([batch_id, name])
 }
@@ -433,6 +436,8 @@ model assessment_attempts {
   assessment         assessments       @relation(fields: [assessment_id], references: [id])
   student            users             @relation("AssessmentStudent", fields: [student_id], references: [id])
   answers            attempt_answers[]
+
+  proctoring_events  proctoring_events[]
 }
 
 model attempt_answers {
@@ -501,6 +506,17 @@ model user_permission_overrides {
   @@unique([user_id, permission_id], map: "user_permission_overrides_unique")
 }
 
+model role_programs {
+  id               Int      @id @default(autoincrement())
+  category_role_id Int
+  program_code     String
+  program_name     String
+  active           Boolean  @default(true)
+  created_at       DateTime @default(now())
+  updated_at       DateTime
+  roles            roles    @relation(fields: [category_role_id], references: [id], onDelete: Cascade)
+}
+
 enum institution_status {
   active
   suspended
@@ -558,16 +574,21 @@ enum PermissionOverrideType {
 }
 
 
-model institution_members {
-  id            Int      @id @default(autoincrement())
-  first_name    String
-  last_name     String
-  email         String   @unique
-  phone_number  String
-  profile_photo String?
+model proctoring_events {
+  id         BigInt   @id @default(autoincrement())
+  attempt_id BigInt
+  event_type ProctoringEventType
+  image_url  String?
+  video_url  String?
+  created_at DateTime @default(now())
 
-  active        Boolean  @default(true)
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  attempt assessment_attempts @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+
+  @@index([attempt_id])
 }
 
+enum ProctoringEventType {
+  TAB_SWITCH
+  CAMERA_OFF
+  SUSPICIOUS_ACTIVITY
+}
