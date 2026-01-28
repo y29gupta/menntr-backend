@@ -135,6 +135,9 @@ model users {
   user_roles                                                            user_roles[]
   institution                                                           institutions?               @relation(fields: [institution_id], references: [id])
 
+  coding_submissions  coding_submissions[]
+  assessment_sessions assessment_sessions[]
+
   @@unique([email, institution_id])
 }
 
@@ -296,6 +299,9 @@ model question_bank {
   verifier             users?                 @relation("QuestionVerifier", fields: [verified_by], references: [id])
   options              question_options[]
 
+  coding_submissions coding_submissions[]
+  navigation_logs    question_navigation_log[]
+
   @@unique([institution_id, question_text, question_type], name: "uq_question_per_institution")
 }
 
@@ -365,6 +371,8 @@ model assessments {
   creator                users                  @relation("AssessmentCreator", fields: [created_by], references: [id])
   feature                features               @relation(fields: [feature_id], references: [id])
   institution            institutions           @relation(fields: [institution_id], references: [id])
+
+  assessment_sessions assessment_sessions[]
 }
 
 model assessment_questions {
@@ -437,7 +445,11 @@ model assessment_attempts {
   student            users             @relation("AssessmentStudent", fields: [student_id], references: [id])
   answers            attempt_answers[]
 
-  proctoring_events  proctoring_events[]
+  proctoring_events proctoring_events[]
+
+  coding_submissions coding_submissions[]
+  sessions           assessment_sessions[]
+  navigation_logs    question_navigation_log[]
 }
 
 model attempt_answers {
@@ -573,14 +585,13 @@ enum PermissionOverrideType {
   revoke
 }
 
-
 model proctoring_events {
-  id         BigInt   @id @default(autoincrement())
+  id         BigInt              @id @default(autoincrement())
   attempt_id BigInt
   event_type ProctoringEventType
   image_url  String?
   video_url  String?
-  created_at DateTime @default(now())
+  created_at DateTime            @default(now())
 
   attempt assessment_attempts @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
 
@@ -591,4 +602,117 @@ enum ProctoringEventType {
   TAB_SWITCH
   CAMERA_OFF
   SUSPICIOUS_ACTIVITY
+}
+
+enum CodeSubmissionStatus {
+  pending
+  running
+  accepted
+  wrong_answer
+  time_limit_exceeded
+  runtime_error
+  compilation_error
+}
+
+enum AssessmentRoundType {
+  mcq
+  coding
+  mixed
+}
+
+model coding_submissions {
+  id          BigInt @id @default(autoincrement())
+  attempt_id  BigInt
+  question_id BigInt
+  student_id  BigInt
+
+  language    String
+  source_code String
+
+  status            CodeSubmissionStatus @default(pending)
+  test_cases_passed Int                  @default(0)
+  total_test_cases  Int                  @default(0)
+  execution_time_ms Int?
+  memory_used_mb    Decimal?             @db.Decimal(10, 2)
+
+  points_earned Decimal @default(0) @db.Decimal(10, 2)
+  max_points    Decimal @db.Decimal(10, 2)
+
+  error_message      String?
+  compilation_output String?
+
+  test_results Json @default("[]")
+
+  is_final_submission Boolean  @default(false)
+  submitted_at        DateTime @default(now())
+
+  attempt  assessment_attempts @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+  question question_bank       @relation(fields: [question_id], references: [id])
+  student  users               @relation(fields: [student_id], references: [id])
+
+  @@index([attempt_id])
+  @@index([question_id])
+  @@index([student_id])
+  @@index([status])
+}
+
+model assessment_sessions {
+  id            BigInt @id @default(autoincrement())
+  attempt_id    BigInt
+  student_id    BigInt
+  assessment_id BigInt
+
+  session_token String  @unique
+  ip_address    String?
+  user_agent    String?
+  device_info   Json    @default("{}")
+
+  current_question_id BigInt?
+  current_round       AssessmentRoundType?
+  is_active           Boolean              @default(true)
+
+  last_activity_at DateTime @default(now())
+  heart_beat_at    DateTime @default(now())
+
+  tab_switch_count       Int  @default(0)
+  full_screen_exit_count Int  @default(0)
+  violations             Json @default("[]")
+
+  created_at DateTime  @default(now())
+  ended_at   DateTime?
+
+  attempt    assessment_attempts @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+  student    users               @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  assessment assessments         @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+
+  navigation_logs question_navigation_log[]
+
+  @@index([attempt_id])
+  @@index([student_id])
+  @@index([session_token])
+  @@index([is_active])
+}
+
+model question_navigation_log {
+  id         BigInt @id @default(autoincrement())
+  session_id BigInt
+  attempt_id BigInt
+
+  question_id   BigInt
+  question_type QuestionType
+
+  entered_at         DateTime  @default(now())
+  exited_at          DateTime?
+  time_spent_seconds Int?
+
+  answer_changed Boolean @default(false)
+  was_flagged    Boolean @default(false)
+
+  session  assessment_sessions @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  attempt  assessment_attempts @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+  question question_bank       @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  @@index([session_id])
+  @@index([attempt_id])
+  @@index([question_id])
 }
