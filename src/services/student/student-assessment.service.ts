@@ -1,4 +1,5 @@
-import { PrismaClient, AssessmentStatus, AttemptStatus } from '@prisma/client';
+import { PrismaClient, AssessmentStatus, AttemptStatus, AssessmentRoundType, ProctoringEventType } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 type StudentAssessmentStatus = 'ongoing' | 'upcoming' | 'completed' | 'published';
 
@@ -395,15 +396,15 @@ export async function getStudentAssessmentDetails(
   if (!assessment) {
     throw new Error('Assessment not accessible');
   }
-const totalQuestions = assessment.questions.length;
+  const totalQuestions = assessment.questions.length;
 
-const mcqCount = assessment.questions.filter((q) =>
-  ['single_correct', 'multiple_correct', 'true_false'].includes(q.question.question_type)
-).length;
+  const mcqCount = assessment.questions.filter((q) =>
+    ['single_correct', 'multiple_correct', 'true_false'].includes(q.question.question_type)
+  ).length;
 
-const codingCount = assessment.questions.filter(
-  (q) => q.question.question_type === 'coding'
-).length;
+  const codingCount = assessment.questions.filter(
+    (q) => q.question.question_type === 'coding'
+  ).length;
 
   const attempt = assessment.attempts[0];
 
@@ -505,5 +506,463 @@ const codingCount = assessment.questions.filter(
 
     can_start: uiStatus === 'ongoing',
     start_disabled_reason: uiStatus === 'upcoming' ? 'Assessment not started yet' : null,
+  };
+}
+
+export async function startAssessmentConsent(
+  prisma: PrismaClient,
+  input: {
+    student_id: bigint;
+    institution_id: number;
+    assessment_id: bigint;
+  }
+) {
+  const now = new Date();
+
+  // 1️⃣ Validate student → active batch
+  const batchStudent = await prisma.batch_students.findFirst({
+    where: {
+      student_id: input.student_id,
+      is_active: true,
+      batch: {
+        institution_id: input.institution_id,
+        is_active: true,
+      },
+    },
+  });
+
+  if (!batchStudent) {
+    throw new Error('Student not assigned to any active batch');
+  }
+
+  // 2️⃣ Fetch assessment + latest attempt
+  const assessment = await prisma.assessments.findFirst({
+    where: {
+      id: input.assessment_id,
+      institution_id: input.institution_id,
+      status: AssessmentStatus.published,
+      is_deleted: false,
+      batches: {
+        some: { batch_id: batchStudent.batch_id },
+      },
+    },
+    include: {
+      attempts: {
+        where: { student_id: input.student_id },
+        orderBy: { attempt_number: 'desc' },
+        take: 1,
+      },
+    },
+  });
+
+  if (!assessment) {
+    throw new Error('Assessment not accessible');
+  }
+
+  // 3️⃣ Check ONGOING only
+  const isStarted = !assessment.start_time || assessment.start_time <= now;
+  const isExpired = !!assessment.end_time && assessment.end_time < now;
+
+  if (!isStarted || isExpired) {
+    throw new Error('Consent allowed only for ongoing assessments');
+  }
+
+  const latestAttempt = assessment.attempts[0];
+
+  if (
+    latestAttempt &&
+    (latestAttempt.status === AttemptStatus.submitted ||
+      latestAttempt.status === AttemptStatus.evaluated ||
+      latestAttempt.status === AttemptStatus.expired)
+  ) {
+    throw new Error('Assessment already completed');
+  }
+
+  // 4️⃣ Create or reuse ATTEMPT
+  const attempt =
+    latestAttempt ??
+    (await prisma.assessment_attempts.create({
+      data: {
+        assessment_id: assessment.id,
+        student_id: input.student_id,
+
+        status: AttemptStatus.not_started,
+
+        total_questions: 0,
+        answered_questions: 0,
+        correct_answers: 0,
+        wrong_answers: 0,
+        skipped_questions: 0,
+
+        score_obtained: 0,
+        total_score: assessment.total_marks ?? 0,
+        percentage: 0,
+      },
+    }));
+
+  // 5️⃣ Create SESSION (1 per attempt)
+  const session = await prisma.assessment_sessions.create({
+    data: {
+      attempt_id: attempt.id,
+      student_id: input.student_id,
+      assessment_id: assessment.id,
+      session_token: randomUUID(),
+      current_round: AssessmentRoundType.mcq,
+      is_active: true,
+    },
+  });
+
+  // 6️⃣ UI RESPONSE (matches your screen 💜)
+  return {
+    assessment_id: assessment.id.toString(),
+    attempt_id: attempt.id.toString(),
+    session_token: session.session_token,
+
+    step: {
+      current: 1,
+      total: 4,
+      label: 'Before you begin',
+    },
+
+    consent: {
+      camera_required: assessment.require_webcam || assessment.proctoring_enabled,
+      microphone_required: assessment.proctoring_enabled,
+      reason: ['Prevent malpractice', 'Ensure fair evaluation', 'Maintain test integrity'],
+      data_retention_notice: 'Your data is not stored beyond the assessment.',
+    },
+
+    can_proceed: true,
+  };
+}
+
+async function getActiveSession(prisma: PrismaClient, attemptId: bigint) {
+  return prisma.assessment_sessions.findFirst({
+    where: {
+      attempt_id: attemptId,
+      is_active: true,
+    },
+  });
+}
+
+export async function getMicCheck(
+  prisma: PrismaClient,
+  input: {
+    student_id: bigint;
+    institution_id: number;
+    assessment_id: bigint;
+  }
+) {
+  const session = await prisma.assessment_sessions.findFirst({
+    where: {
+      assessment_id: input.assessment_id,
+      student_id: input.student_id,
+      is_active: true,
+    },
+  });
+
+  if (!session) {
+    throw new Error('Session not found. Consent required.');
+  }
+
+  return {
+    step: {
+      current: 2,
+      total: 4,
+      label: 'Microphone Check',
+    },
+    instructions: 'Please say "Hello" to test your microphone.',
+    can_start_test: true,
+  };
+}
+
+export async function startMicCheck(
+  prisma: PrismaClient,
+  input: {
+    student_id: bigint;
+    institution_id: number;
+    assessment_id: bigint;
+  }
+) {
+  const session = await prisma.assessment_sessions.findFirst({
+    where: {
+      assessment_id: input.assessment_id,
+      student_id: input.student_id,
+      is_active: true,
+    },
+  });
+
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  return {
+    status: 'listening',
+    message: 'Analyzing your voice',
+  };
+}
+
+export async function submitMicCheckResult(
+  prisma: PrismaClient,
+  input: {
+    student_id: bigint;
+    institution_id: number;
+    assessment_id: bigint;
+    success: boolean;
+  }
+) {
+  const session = await prisma.assessment_sessions.findFirst({
+    where: {
+      assessment_id: input.assessment_id,
+      student_id: input.student_id,
+      is_active: true,
+    },
+  });
+
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  const metadata = (session.device_info as any) || {};
+
+  metadata.mic_check = {
+    status: input.success ? 'success' : 'failed',
+    checked_at: new Date().toISOString(),
+  };
+
+  await prisma.assessment_sessions.update({
+    where: { id: session.id },
+    data: {
+      device_info: metadata,
+    },
+  });
+
+  if (!input.success) {
+    return {
+      success: false,
+      message: 'We could not hear you. Please check microphone settings.',
+      retry_allowed: true,
+    };
+  }
+
+  return {
+    success: true,
+    message: 'Microphone detected — you sound good!',
+    next_step: {
+      current: 3,
+      label: 'Camera Check',
+    },
+  };
+}
+
+export async function getCameraCheck(
+  prisma: PrismaClient,
+  input: {
+    student_id: bigint;
+    institution_id: number;
+    assessment_id: bigint;
+  }
+) {
+  const session = await prisma.assessment_sessions.findFirst({
+    where: {
+      assessment_id: input.assessment_id,
+      student_id: input.student_id,
+      is_active: true,
+    },
+  });
+
+  if (!session) {
+    throw new Error('Session not found. Complete previous steps.');
+  }
+
+  return {
+    step: {
+      current: 3,
+      total: 4,
+      label: 'Camera Check',
+    },
+    instructions: 'Turn on your camera and align your face.',
+    can_start_camera: true,
+  };
+}
+
+/* -----------------------------
+   START CAMERA CHECK
+------------------------------ */
+export async function startCameraCheck(
+  prisma: PrismaClient,
+  input: {
+    student_id: bigint;
+    institution_id: number;
+    assessment_id: bigint;
+  }
+) {
+  const session = await prisma.assessment_sessions.findFirst({
+    where: {
+      assessment_id: input.assessment_id,
+      student_id: input.student_id,
+      is_active: true,
+    },
+  });
+
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  return {
+    status: 'camera_on',
+    message: 'Camera is active. Please align your face.',
+  };
+}
+
+/* -----------------------------
+   SUBMIT CAMERA CHECK RESULT
+------------------------------ */
+export async function submitCameraCheckResult(
+  prisma: PrismaClient,
+  input: {
+    student_id: bigint;
+    institution_id: number;
+    assessment_id: bigint;
+    success: boolean;
+  }
+) {
+  const session = await prisma.assessment_sessions.findFirst({
+    where: {
+      assessment_id: input.assessment_id,
+      student_id: input.student_id,
+      is_active: true,
+    },
+  });
+
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  const deviceInfo = (session.device_info as any) || {};
+
+  deviceInfo.camera_check = {
+    status: input.success ? 'success' : 'failed',
+    checked_at: new Date().toISOString(),
+  };
+
+  await prisma.assessment_sessions.update({
+    where: { id: session.id },
+    data: {
+      device_info: deviceInfo,
+    },
+  });
+
+  // ❌ Log proctoring event on failure
+  if (!input.success) {
+    await prisma.proctoring_events.create({
+      data: {
+        attempt_id: session.attempt_id,
+        event_type: ProctoringEventType.CAMERA_OFF,
+      },
+    });
+
+    return {
+      success: false,
+      message: 'Camera not detected — please enable access.',
+      retry_allowed: true,
+    };
+  }
+
+  // ✅ Success → Step 4
+  return {
+    success: true,
+    message: 'Camera working — you’re good to go.',
+    next_step: {
+      current: 4,
+      label: 'Final Setup',
+    },
+  };
+}
+
+export async function startAssessment(
+  prisma: PrismaClient,
+  input: {
+    student_id: bigint;
+    institution_id: number;
+    assessment_id: bigint;
+  }
+) {
+  const now = new Date();
+
+  // 1️⃣ Active session is REQUIRED
+  const session = await prisma.assessment_sessions.findFirst({
+    where: {
+      assessment_id: input.assessment_id,
+      student_id: input.student_id,
+      is_active: true,
+    },
+    include: {
+      attempt: true,
+      assessment: true,
+    },
+  });
+
+  if (!session) {
+    throw new Error('Session not found. Complete setup steps first.');
+  }
+
+  const { attempt, assessment } = session;
+
+  // 2️⃣ Time validation
+  const isStarted = !assessment.start_time || assessment.start_time <= now;
+  const isExpired = !!assessment.end_time && assessment.end_time < now;
+
+  if (!isStarted || isExpired) {
+    throw new Error('Assessment is not available to start');
+  }
+
+  // 3️⃣ Ensure camera + mic checks are done
+  const deviceInfo = (session.device_info as any) || {};
+
+  if (assessment.proctoring_enabled) {
+    if (deviceInfo.mic_check?.status !== 'success') {
+      throw new Error('Microphone check not completed');
+    }
+
+    if (
+      (assessment.require_webcam || assessment.proctoring_enabled) &&
+      deviceInfo.camera_check?.status !== 'success'
+    ) {
+      throw new Error('Camera check not completed');
+    }
+  }
+
+  // 4️⃣ Move ATTEMPT → IN_PROGRESS (idempotent)
+  if (attempt.status === AttemptStatus.not_started) {
+    await prisma.assessment_attempts.update({
+      where: { id: attempt.id },
+      data: {
+        status: AttemptStatus.in_progress,
+        started_at: now,
+      },
+    });
+  }
+
+  // 5️⃣ Lock session heartbeat
+  await prisma.assessment_sessions.update({
+    where: { id: session.id },
+    data: {
+      last_activity_at: now,
+      heart_beat_at: now,
+    },
+  });
+
+  // 6️⃣ FINAL UI RESPONSE (THIS MATCHES YOUR SCREEN)
+  return {
+    success: true,
+    message: 'Assessment started successfully',
+    assessment_id: assessment.id.toString(),
+    attempt_id: attempt.id.toString(),
+    session_token: session.session_token,
+
+    ui: {
+      button_label: 'Start', // 🔥 matches your UI
+      next_screen: 'assessment',
+    },
   };
 }
