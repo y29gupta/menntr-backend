@@ -31,6 +31,7 @@ import {assessmentPerformanceRoutes} from "./routes/assessment-performance.route
 import {assessmentSettingsRoutes} from "./routes/assessment-settings.routes";
 import {candidateReportRoutes} from "./routes/candidate-report.routes";
 import {proctoringInsightsRoutes} from "./routes/proctoring-insights.routes";
+import {studentAssessmentRuntimeRoutes} from "./routes/student/student-assessment.runtime.routes";
 import { rateLimitPlugin } from './plugins/rateLimit';
 
 export function buildApp() {
@@ -128,7 +129,8 @@ export function buildApp() {
   app.register(assessmentPerformanceRoutes);
   app.register(assessmentSettingsRoutes);
   app.register(candidateReportRoutes);
-  app.register(proctoringInsightsRoutes);;
+  app.register(proctoringInsightsRoutes);
+  app.register(studentAssessmentRuntimeRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {

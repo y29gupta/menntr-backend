@@ -133,22 +133,22 @@ export async function getCandidatePerformance(
     distinct: ['attempt_number'],
     orderBy: { attempt_number: 'asc' },
   });
-
+  console.log("available", availableAttempts)
   if (availableAttempts.length === 0) {
     return buildPaginatedResponse([], 0, page, limit);
   }
 
   // 🔹 Default attempt = lowest attempt number
   const selectedAttempt = query.attempt ?? availableAttempts[0].attempt_number;
-
+  console.log("selected", selectedAttempt)
   const where: any = {
     assessment_id: assessmentId,
-    attempt_number: selectedAttempt,
+    attempt_number: Number(selectedAttempt),
     student: {
       institution_id: institutionId,
     },
   };
-
+  console.log("where", where)
   if (query.search) {
     where.student.OR = [
       { first_name: { contains: query.search, mode: 'insensitive' } },

@@ -4,12 +4,12 @@ import { PrismaClient } from '@prisma/client';
 export async function getCandidateReport(
   prisma: PrismaClient,
   assessmentId: bigint,
-  attemptId: bigint,
+  attempt_number: bigint,
   institutionId: number
 ) {
   const attempt = await prisma.assessment_attempts.findFirst({
     where: {
-      id: attemptId,
+      attempt_number: Number(attempt_number),
       assessment_id: assessmentId,
       assessment: {
         institution_id: institutionId,
