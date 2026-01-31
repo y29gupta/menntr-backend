@@ -7,40 +7,44 @@ exports.runPython = (code, testCases, timeLimitMs) => {
     const id = uuid();
     const file = `/tmp/${id}.py`;
 
-    let runner = `
-${code}
+    fs.writeFileSync(file, code);
 
-def __run():
-`;
-    testCases.forEach((t, i) => {
-      runner += `
-    try:
-        print(isPalindrome(${JSON.stringify(t.input)}))
-    except Exception as e:
-        print("ERROR")
-`;
-    });
+    let passed = 0;
+    let outputs = [];
 
-    fs.writeFileSync(file, runner);
-
-    exec(`python3 ${file}`, { timeout: timeLimitMs }, (err, stdout, stderr) => {
-      if (err) {
-        return resolve({ status: 'runtime_error', error: stderr });
+    const runTest = (i) => {
+      if (i >= testCases.length) {
+        return resolve({
+          status: passed === testCases.length ? 'accepted' : 'wrong_answer',
+          passed,
+          total: testCases.length,
+          outputs,
+        });
       }
 
-      const outputs = stdout.trim().split('\n');
-      let passed = 0;
+      const input = testCases[i].input + '\n';
+      const expected = String(testCases[i].output).trim();
 
-      outputs.forEach((o, i) => {
-        if (String(o).trim() === String(testCases[i].output)) passed++;
+      const proc = exec(`python3 ${file}`, { timeout: timeLimitMs }, (err, stdout, stderr) => {
+        if (err) {
+          return resolve({
+            status: 'runtime_error',
+            error: stderr || err.message,
+          });
+        }
+
+        const actual = stdout.trim();
+        outputs.push(actual);
+
+        if (actual === expected) passed++;
+
+        runTest(i + 1);
       });
 
-      resolve({
-        status: passed === testCases.length ? 'accepted' : 'wrong_answer',
-        passed,
-        total: testCases.length,
-        outputs,
-      });
-    });
+      proc.stdin.write(input);
+      proc.stdin.end();
+    };
+
+    runTest(0);
   });
 };

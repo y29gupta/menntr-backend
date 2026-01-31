@@ -1,4 +1,5 @@
 import { PrismaClient, AttemptStatus, CodeSubmissionStatus } from '@prisma/client';
+import axios from 'axios';
 
 /* ---------------- RUNTIME CONFIG ---------------- */
 export async function getRuntimeConfig(prisma: PrismaClient, input: any) {
@@ -146,14 +147,19 @@ export async function saveMcqAnswer(prisma: PrismaClient, input: any) {
 
 /* ---------------- RUN CODING (STUB) ---------------- */
 export async function runCoding(prisma: PrismaClient, input: any) {
-  // ⚠️ DO NOT EXECUTE USER CODE HERE
-  // Integrate Docker / Judge later
+  const question = await prisma.question_bank.findUnique({
+    where: { id: input.question_id },
+  });
 
-  return {
-    status: 'success',
-    sample_testcases_passed: true,
-    output: 'Sample tests passed',
-  };
+  const testCases = (question!.metadata as any).sample_test_cases.slice(0, 2);
+
+  const response = await axios.post('http://4.186.24.240:5000/run', {
+    language: input.language,
+    code: input.source_code,
+    testCases,
+  });
+
+  return response.data;
 }
 
 /* ---------------- SAVE CODING ---------------- */
