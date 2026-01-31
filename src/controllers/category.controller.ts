@@ -28,25 +28,32 @@ export async function listCategories(req: FastifyRequest, reply: FastifyReply) {
     throw new ForbiddenError('No institution linked');
   }
 
-  const categories = await getCategories(prisma, user.institutionId);
+  const categories = await getCategories(prisma, user.institution_id);
 
-reply.send(
-  categories.map((c: any) => ({
-    id: c.id,
-    name: c.name,
-    code: c.code,
-    department_count: c._count.children, // ✅ HERE
-    head: c.user_roles.length
-      ? {
-          id: Serializer.bigIntToString(c.user_roles[0].user.id),
-          name: `${c.user_roles[0].user.first_name ?? ''} ${
-            c.user_roles[0].user.last_name ?? ''
-          }`.trim(),
-          email: c.user_roles[0].user.email,
-        }
-      : null,
-  }))
-);
+  reply.send(
+    categories.map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      code: c.code,
+      departmentCount: c._count.children,
+      // Return all users assigned to this category (from user_roles table)
+      assignedUsers: c.user_roles.map((ur: any) => ({
+        id: Serializer.bigIntToString(ur.user.id),
+        name: `${ur.user.first_name ?? ''} ${ur.user.last_name ?? ''}`.trim(),
+        email: ur.user.email,
+      })),
+      // For backward compatibility, keep head as first user or null
+      head: c.user_roles.length
+        ? {
+            id: Serializer.bigIntToString(c.user_roles[0].user.id),
+            name: `${c.user_roles[0].user.first_name ?? ''} ${
+              c.user_roles[0].user.last_name ?? ''
+            }`.trim(),
+            email: c.user_roles[0].user.email,
+          }
+        : null,
+    }))
+  );
 }
 
 
@@ -171,6 +178,19 @@ export async function getCategoryById(
     user.institution_id
   );
 
+  // Get program for this category
+  const program = await prisma.role_programs.findFirst({
+    where: {
+      category_role_id: categoryId,
+      active: true,
+    },
+    select: {
+      id: true,
+      program_code: true,
+      program_name: true,
+    },
+  });
+
   reply.send({
     id: category.id,
     name: category.name,
@@ -191,6 +211,13 @@ export async function getCategoryById(
       name: d.name,
       code: d.code,
     })),
+
+    program: program
+      ? {
+          program_code: program.program_code,
+          program_name: program.program_name,
+        }
+      : null,
   });
 }
 

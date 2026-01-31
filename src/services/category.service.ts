@@ -10,24 +10,59 @@ const CATEGORY_LEVEL = 2;
 const DEPARTMENT_LEVEL = 3;
 const ROOT_LEVEL = 1;
 
+// Helper function to assign permissions to a role based on plan and hierarchy
+async function assignPermissionsToRole(
+  tx: any,
+  roleId: number,
+  planCode: string | null,
+  roleHierarchyId: number
+) {
+  if (!planCode) {
+    // If no plan, skip permission assignment
+    return;
+  }
+
+  // Get permissions from plan_role_permissions based on plan_code and role_hierarchy_id
+  const planRolePermissions = await tx.plan_role_permissions.findMany({
+    where: {
+      plan_code: planCode,
+      role_hierarchy_id: roleHierarchyId,
+    },
+    select: {
+      permission_id: true,
+    },
+  });
+
+  if (planRolePermissions.length > 0) {
+    // Insert permissions into role_permissions table
+    await tx.role_permissions.createMany({
+      data: planRolePermissions.map((prp: any) => ({
+        role_id: roleId,
+        permission_id: prp.permission_id,
+      })),
+      skipDuplicates: true,
+    });
+  }
+}
+
 
 export async function getCategories(
   prisma: PrismaClient,
   institution_id: number
 ) {
   return prisma.roles.findMany({
-    where: {
-      institution_id:institution_id,
-      role_hierarchy_id: CATEGORY_LEVEL,
-      code: { not: null },
-    },
+      where: {
+        institution_id: institution_id,
+        role_hierarchy_id: CATEGORY_LEVEL,
+        // Filter by role_hierarchy_id only - categories are identified by hierarchy level, not code
+      },
     include: {
       _count: {
         select: {
           children: {
             where: {
               role_hierarchy_id: DEPARTMENT_LEVEL,
-              code: { not: null },
+              // Filter by role_hierarchy_id only, not by code
             },
           },
         },
@@ -63,10 +98,10 @@ export async function getCategoryMeta(
 
     prisma.roles.findMany({
       where: {
-        institution_id:institution_id,
+        institution_id: institution_id,
         role_hierarchy_id: DEPARTMENT_LEVEL,
-        code: { not: null },        // ✅ real departments only
         is_system_role: false,        // ✅ exclude system roles
+        // Filter by role_hierarchy_id only, not by code
       },
       select: {
         id: true,
@@ -87,8 +122,8 @@ export async function getCategoryMeta(
     departments: departments.map((d:any) => ({
       id: d.id.toString(),
       name: d.name,
-      categoryId: d.partent_id ? d.partent_id.toString() : null,
-      isAssigned: Boolean(d.partent_id), // 🔥 useful for UI
+      categoryId: d.parent_id ? d.parent_id.toString() : null,
+      isAssigned: Boolean(d.parent_id), // 🔥 useful for UI
     })),
   };
 }
@@ -101,15 +136,14 @@ export async function createCategory(
   input: {
     name: string;
     code: string;
-    headUserId: number;
-    departmentIds: number[];
+    programs?: Array<{ program_code: string; program_name: string }>;
   }
 ) {
   return prisma.$transaction(async (tx) => {
     // 1️⃣ Root role check
     const root = await tx.roles.findFirst({
       where: {
-        institution_id:institution_id,
+        institution_id: institution_id,
         role_hierarchy_id: ROOT_LEVEL,
       },
     });
@@ -121,7 +155,7 @@ export async function createCategory(
     // 2️⃣ Prevent duplicate category code
     const existing = await tx.roles.findFirst({
       where: {
-        institution_id:institution_id,
+        institution_id: institution_id,
         role_hierarchy_id: CATEGORY_LEVEL,
         code: input.code,
       },
@@ -131,58 +165,77 @@ export async function createCategory(
       throw new ConflictError('Category code already exists');
     }
 
-    // 3️⃣ Validate category head user
-    const headUser = await tx.users.findFirst({
-      where: {
-        id: BigInt(input.headUserId),
-        institution_id:institution_id,
+    // 3️⃣ Get institution plan code for permission assignment
+    const institution = await tx.institutions.findUnique({
+      where: { id: institution_id },
+      select: {
+        plan_id: true,
+        plan: {
+          select: {
+            code: true,
+          },
+        },
       },
     });
 
-    if (!headUser) {
-      throw new ForbiddenError('Invalid category head user');
-    }
+    const planCode = institution?.plan?.code || null;
 
     // 4️⃣ Create category
     const category = await tx.roles.create({
       data: {
         name: input.name,
         code: input.code,
-        institution_id:institution_id,
+        institution_id: institution_id,
         parent_id: root.id,
         role_hierarchy_id: CATEGORY_LEVEL,
       },
     });
 
-    // 5️⃣ Assign category head
-    await tx.user_roles.create({
-      data: {
-        role_id: category.id,
-        user_id: BigInt(input.headUserId),
-      },
-    });
+    // 5️⃣ Assign permissions from plan_role_permissions
+    await assignPermissionsToRole(tx, category.id, planCode, CATEGORY_LEVEL);
 
-    // 6️⃣ Assign departments (validated)
-    if (input.departmentIds.length) {
-      const validDepartments = await tx.roles.count({
+    // 6️⃣ Create program if provided (only one program per category)
+    if (input.programs && input.programs.length > 0) {
+      if (input.programs.length > 1) {
+        throw new ConflictError('Each category can have only one program');
+      }
+
+      const program = input.programs[0];
+      
+      // Check if category already has a program (shouldn't happen for new category, but safety check)
+      const existingProgram = await tx.role_programs.findFirst({
         where: {
-          id: { in: input.departmentIds },
-          institution_id:institution_id,
-          role_hierarchy_id: DEPARTMENT_LEVEL,
+          category_role_id: category.id,
+          active: true,
         },
       });
 
-      if (validDepartments !== input.departmentIds.length) {
-        throw new ForbiddenError(
-          'One or more departments are invalid or belong to another institution'
-        );
+      if (existingProgram) {
+        throw new ConflictError('This category already has a program assigned. Each category can have only one program.');
       }
 
-      await tx.roles.updateMany({
-        where: { id: { in: input.departmentIds } },
-        data: { parent_id: category.id },
+      // Check for duplicate program code within the same category
+      const existingByCode = await tx.role_programs.findFirst({
+        where: {
+          category_role_id: category.id,
+          program_code: program.program_code,
+        },
       });
+
+      if (!existingByCode) {
+        await tx.role_programs.create({
+          data: {
+            category_role_id: category.id,
+            program_code: program.program_code,
+            program_name: program.program_name,
+            updated_at: new Date(),
+          },
+        });
+      }
     }
+
+    // Note: Users can be assigned to this category later via user_roles table
+    // Departments can be assigned to this category later by updating their parent_id
 
     return category;
   });
@@ -196,8 +249,7 @@ export async function updateCategory(
   input: {
     name?: string;
     code?: string;
-    headUserId?: number;
-    departmentIds?: number[];
+    programs?: Array<{ program_code: string; program_name: string }>;
   }
 ) {
   return prisma.$transaction(async (tx) => {
@@ -229,65 +281,68 @@ export async function updateCategory(
       }
     }
 
+    // Update category (role_hierarchy_id is NEVER changed - always level 2)
     const updated = await tx.roles.update({
       where: { id: categoryId },
       data: {
         ...(input.name && { name: input.name }),
         ...(input.code && { code: input.code }),
+        // role_hierarchy_id is NOT updated - always remains CATEGORY_LEVEL (2)
       },
     });
 
-    // Update head
-    if (input.headUserId !== undefined) {
-      const headUser = await tx.users.findFirst({
+    // Handle program updates
+    if (input.programs !== undefined) {
+      // Get existing program for this category
+      const existingProgram = await tx.role_programs.findFirst({
         where: {
-          id: BigInt(input.headUserId),
-          institution_id:institution_id,
+          category_role_id: categoryId,
+          active: true,
         },
       });
 
-      if (!headUser) {
-        throw new ForbiddenError('Invalid category head user');
-      }
-
-      await tx.user_roles.deleteMany({ where: { role_id: categoryId } });
-      await tx.user_roles.create({
-        data: {
-          role_id: categoryId,
-          user_id: BigInt(input.headUserId),
-        },
-      });
-    }
-
-    // Update departments
-    if (input.departmentIds) {
-      await tx.roles.updateMany({
-        where: {
-          parent_id: categoryId,
-          role_hierarchy_id: DEPARTMENT_LEVEL,
-        },
-        data: { parent_id: null },
-      });
-
-      if (input.departmentIds.length) {
-        const valid = await tx.roles.count({
-          where: {
-            id: { in: input.departmentIds },
-            institution_id:institution_id,
-            role_hierarchy_id: DEPARTMENT_LEVEL,
-          },
-        });
-
-        if (valid !== input.departmentIds.length) {
-          throw new ForbiddenError('Invalid departments selected');
+      if (input.programs.length === 0) {
+        // If empty array, delete existing program (if any)
+        if (existingProgram) {
+          await tx.role_programs.update({
+            where: { id: existingProgram.id },
+            data: {
+              active: false,
+              updated_at: new Date(),
+            },
+          });
         }
+      } else if (input.programs.length === 1) {
+        // If one program provided, update or create
+        const newProgram = input.programs[0];
 
-        await tx.roles.updateMany({
-          where: { id: { in: input.departmentIds } },
-          data: { parent_id: categoryId },
-        });
+        if (existingProgram) {
+          // Update existing program
+          await tx.role_programs.update({
+            where: { id: existingProgram.id },
+            data: {
+              program_code: newProgram.program_code,
+              program_name: newProgram.program_name,
+              updated_at: new Date(),
+            },
+          });
+        } else {
+          // Create new program
+          await tx.role_programs.create({
+            data: {
+              category_role_id: categoryId,
+              program_code: newProgram.program_code,
+              program_name: newProgram.program_name,
+              updated_at: new Date(),
+            },
+          });
+        }
       }
+      // If programs.length > 1, validation should have caught this at schema level
     }
+
+    // Note: Users can be assigned/updated via user_roles table separately
+    // Departments can be assigned/updated by changing their parent_id separately
 
     return updated;
   });
@@ -301,9 +356,9 @@ export async function getCategoryByIdService(
   const category = await prisma.roles.findFirst({
     where: {
       id: categoryId,
-      institution_id:institution_id,
+      institution_id: institution_id,
       role_hierarchy_id: CATEGORY_LEVEL,
-      code: { not: null },
+      // Filter by role_hierarchy_id only, not by code
     },
     include: {
       user_roles: {
@@ -312,7 +367,7 @@ export async function getCategoryByIdService(
       children: {
         where: {
           role_hierarchy_id: DEPARTMENT_LEVEL,
-          code: { not: null },
+          // Filter by role_hierarchy_id only, not by code
         },
         orderBy: { name: 'asc' },
       },

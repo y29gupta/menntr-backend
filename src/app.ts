@@ -18,6 +18,7 @@ import { forgotPasswordRoutes } from './routes/forgot-password';
 import { departmentRoutes } from './routes/department.routes';
 import { organizationRoutes } from './routes/organization.routes';
 import { categoryRoutes } from './routes/category.routes';
+import { programRoutes } from './routes/program.routes';
 import {userManagementRoutes} from './routes/userManagement.routes';
 import { batchRoutes } from './routes/batch.routes';
 // import {mcqRoutes} from './routes/mcq.routes';
@@ -32,6 +33,7 @@ import {assessmentSettingsRoutes} from "./routes/assessment-settings.routes";
 import {candidateReportRoutes} from "./routes/candidate-report.routes";
 import {proctoringInsightsRoutes} from "./routes/proctoring-insights.routes";
 import {studentAssessmentRuntimeRoutes} from "./routes/student/student-assessment.runtime.routes";
+import planRoutesModule from "./routes/plan.routes";
 import { rateLimitPlugin } from './plugins/rateLimit';
 
 export function buildApp() {
@@ -113,11 +115,13 @@ export function buildApp() {
   app.register(adminRoutes);
   app.register(authRoutes, { prefix: '/auth' });
   app.register(institutionRoutes);
-  app.register(planRoutes);
+  app.register(planRoutes); // from institutions.ts
+  app.register(planRoutesModule); // from plan.routes.ts
   app.register(forgotPasswordRoutes);
   app.register(departmentRoutes);
   app.register(organizationRoutes);
   app.register(categoryRoutes);
+  app.register(programRoutes);
   app.register(userManagementRoutes);
   app.register(batchRoutes);
   // app.register(mcqRoutes);

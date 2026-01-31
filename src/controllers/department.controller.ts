@@ -40,6 +40,13 @@ export async function listDepartments(request: FastifyRequest, reply: FastifyRep
     name: r.name,
     code: r.code,
     category: r.parent ? { id: r.parent.id, name: r.parent.name } : null,
+    // Return all users assigned to this department (from user_roles table)
+    assignedUsers: r.user_roles.map((ur: any) => ({
+      id: Serializer.bigIntToString(ur.user.id),
+      name: `${ur.user.first_name ?? ''} ${ur.user.last_name ?? ''}`.trim(),
+      email: ur.user.email,
+    })),
+    // For backward compatibility, keep hod as first user or null
     hod: r.user_roles.length
       ? {
           id: Serializer.bigIntToString(r.user_roles[0].user.id),
@@ -54,7 +61,10 @@ export async function listDepartments(request: FastifyRequest, reply: FastifyRep
   }));
 
   reply.send({
-    ...result.meta,
+    total: result.meta.totalCount, // Total count of all departments
+    page: result.meta.currentPage,
+    limit: result.meta.pageSize,
+    ...result.meta, // Include all other meta fields
     data,
   });
 }
