@@ -6,7 +6,7 @@ export async function getCandidateReportHandler(
   req: FastifyRequest<{
     Params: {
       assessmentId: string;
-      attempt_number: string;
+      attemptId: string;
     };
   }>,
   reply: FastifyReply
@@ -16,7 +16,7 @@ export async function getCandidateReportHandler(
   const data = await service.getCandidateReport(
     req.prisma,
     BigInt(req.params.assessmentId),
-    BigInt(req.params.attempt_number),
+    BigInt(req.params.attemptId),
     user.institution_id
   );
 

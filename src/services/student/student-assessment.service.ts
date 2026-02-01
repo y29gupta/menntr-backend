@@ -1,5 +1,12 @@
-import { PrismaClient, AssessmentStatus, AttemptStatus, AssessmentRoundType, ProctoringEventType } from '@prisma/client';
+import {
+  PrismaClient,
+  AssessmentStatus,
+  AttemptStatus,
+  AssessmentRoundType,
+  ProctoringEventType,
+} from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { buildPaginatedResponse, getPagination } from '../../utils/pagination';
 
 type StudentAssessmentStatus = 'ongoing' | 'upcoming' | 'completed' | 'published';
 
@@ -964,5 +971,141 @@ export async function startAssessment(
       button_label: 'Start', // 🔥 matches your UI
       next_screen: 'assessment',
     },
+  };
+}
+
+export async function getStudentAssessmentOverview(
+  prisma: PrismaClient,
+  studentId: bigint,
+  institutionId: number
+) {
+  const attempts = await prisma.assessment_attempts.findMany({
+    where: {
+      student_id: studentId,
+      assessment: { institution_id: institutionId },
+      status: { in: ['submitted', 'evaluated'] },
+    },
+    select: {
+      percentage: true,
+      assessment: { select: { title: true } },
+    },
+    orderBy: { created_at: 'asc' },
+  });
+
+  if (attempts.length === 0) {
+    return {
+      attemptRate: 0,
+      averageScore: 0,
+      highestScore: 0,
+      lowestScore: 0,
+      chart: [],
+    };
+  }
+
+  const scores = attempts.map((a) => Number(a.percentage ?? 0));
+
+  return {
+    attemptRate: 100,
+    averageScore: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
+    highestScore: Math.max(...scores),
+    lowestScore: Math.min(...scores),
+    chart: attempts.map((a) => ({
+      assessment: a.assessment.title,
+      score: Math.round(Number(a.percentage ?? 0)),
+    })),
+  };
+}
+
+export async function getStudentAssessments(
+  prisma: PrismaClient,
+  studentId: bigint,
+  institutionId: number,
+  query: { page?: number; limit?: number }
+) {
+  const { skip, limit, page } = getPagination(query);
+
+  // 🔥 Latest attempt per assessment
+  const attempts = await prisma.assessment_attempts.findMany({
+    where: {
+      student_id: studentId,
+      assessment: { institution_id: institutionId },
+      status: { in: ['submitted', 'evaluated'] },
+    },
+    include: {
+      assessment: {
+        select: {
+          title: true,
+          duration_minutes: true,
+        },
+      },
+    },
+    orderBy: [
+      { assessment_id: 'asc' },
+      { attempt_number: 'desc' }, // latest attempt first
+    ],
+  });
+
+  const latestByAssessment = new Map<string, any>();
+
+  for (const a of attempts) {
+    const key = a.assessment_id.toString();
+    if (!latestByAssessment.has(key)) {
+      latestByAssessment.set(key, a);
+    }
+  }
+
+  const rows = Array.from(latestByAssessment.values());
+
+  return buildPaginatedResponse(
+    rows.map((a) => ({
+      assessmentId: a.assessment_id.toString(),
+      assessmentName: a.assessment.title,
+      attempt: a.attempt_number,
+      durationMinutes: Math.round((a.time_taken_seconds ?? 0) / 60),
+      score: `${a.score_obtained}/${a.total_score}`,
+      percentage: Math.round(Number(a.percentage ?? 0)),
+      status: a.status,
+      attemptId: a.id.toString(), // 🔥 used for drill-down
+    })),
+    rows.length,
+    page,
+    limit
+  );
+}
+
+export async function submitAssessmentFeedback(
+  prisma: PrismaClient,
+  input: {
+    student_id: bigint;
+    assessment_id: bigint;
+    overall_rating: number;
+    flow_rating: string;
+    comments?: string;
+  }
+) {
+  const attempt = await prisma.assessment_attempts.findFirst({
+    where: {
+      assessment_id: input.assessment_id,
+      student_id: input.student_id,
+      status: AttemptStatus.evaluated,
+    },
+  });
+
+  if (!attempt) throw new Error('Feedback allowed only after submission');
+
+  await prisma.assessment_feedback.create({
+    data: {
+      assessment_id: input.assessment_id,
+      attempt_id: attempt.id,
+      student_id: input.student_id,
+      overall_rating: input.overall_rating,
+      flow_rating: input.flow_rating,
+      comments: input.comments,
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Thank you for your feedback 💜',
   };
 }

@@ -168,3 +168,59 @@ export async function startAssessmentHandler(
 
   reply.send(data);
 }
+
+export async function getStudentAssessmentOverviewHandler(
+  req: FastifyRequest<{ Params: { studentId: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const data = await service.getStudentAssessmentOverview(
+    req.prisma,
+    BigInt(req.params.studentId),
+    user.institution_id
+  );
+
+  reply.send(data);
+}
+
+export async function getStudentAssessmentsHandler(
+  req: FastifyRequest<{
+    Params: { studentId: string };
+    Querystring: { page?: number; limit?: number };
+  }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const data = await service.getStudentAssessments(
+    req.prisma,
+    BigInt(req.params.studentId),
+    user.institution_id,
+    req.query
+  );
+
+  reply.send(data);
+}
+
+export async function submitAssessmentFeedbackHandler(
+  req: FastifyRequest<{
+    Params: { assessmentId: string };
+    Body: {
+      overall_rating: number;
+      flow_rating: 'very_smooth' | 'acceptable' | 'needs_improvement';
+      comments?: string;
+    };
+  }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const data = await service.submitAssessmentFeedback(req.prisma, {
+    student_id: BigInt(user.sub),
+    assessment_id: BigInt(req.params.assessmentId),
+    ...req.body,
+  });
+
+  reply.send(data);
+}

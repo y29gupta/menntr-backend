@@ -34,7 +34,7 @@ type SaveCodingBody = {
   question_id: string;
   language: string;
   source_code: string;
-  max_points: number;
+  // max_points: number;
 };
 
 type FlagBody = {
@@ -121,7 +121,7 @@ export async function saveCodingSubmissionHandler(
       question_id: BigInt(req.body.question_id),
       language: req.body.language,
       source_code: req.body.source_code,
-      max_points: req.body.max_points,
+      // max_points: req.body.max_points,
     })
   );
 }

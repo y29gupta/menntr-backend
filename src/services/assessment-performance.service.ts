@@ -27,8 +27,15 @@ export async function getAssessmentPerformanceOverview(
     throw new Error('Performance available only for active or completed assessments');
   }
 
-  const totalAssigned = await prisma.assessment_students.count({
-    where: { assessment_id: assessmentId },
+  const totalAssigned = await prisma.batch_students.count({
+    where: {
+      batch: {
+        assessment_batches: {
+          some: {assessment_id: assessmentId},
+        },
+      },
+      is_active: true,
+     },
   });
 
   const attempts = await prisma.assessment_attempts.findMany({
@@ -89,26 +96,72 @@ export async function getQuestionWisePerformance(
   const questions = await prisma.assessment_questions.findMany({
     where: { assessment_id: assessmentId },
     include: {
-      question: { select: { difficulty_level: true } },
+      question: { select: { difficulty_level: true, question_type: true } },
       attempt_answers: {
-        select: { is_correct: true, time_taken_seconds: true },
+        select: {
+          is_correct: true,
+          time_taken_seconds: true,
+        },
       },
     },
-    orderBy: { sort_order: 'asc' },
+    orderBy: {sort_order: 'asc'},
   });
 
-  return questions.map((q, index) => {
-    const total = q.attempt_answers.length;
-    const correct = q.attempt_answers.filter((a) => a.is_correct).length;
+  // Fetch All Coding submissions in one shot
+  const codingSubmissions = await prisma.coding_submissions.findMany({
+    where: {
+      question_id: {
+        in: questions.map((q) => q.question_id),
+      },
+      is_final_submission: true,
+    },
+    select: {
+      question_id: true,
+      status: true,
+    },
+  });
 
-    const avgTime =
-      q.attempt_answers.reduce((s, a) => s + (a.time_taken_seconds ?? 0), 0) / (total || 1);
+  // Group coding submissions by question_id
+  const codingMap = new Map<string, {total: number; accepted: number}>();
+
+  for(const sub of codingSubmissions) {
+    const key = sub.question_id.toString();
+
+    if(!codingMap.has(key)) {
+      codingMap.set(key, {total: 0, accepted: 0});
+    }
+
+    const entry = codingMap.get(key)!;
+    entry.total += 1;
+
+    if(sub.status === 'accepted') {
+      entry.accepted += 1;
+    }
+  }
+
+  // Final response
+  return questions.map((q, index) => {
+    let total = 0;
+    let correct = 0;
+    let avgTime = 0;
+
+    if (q.question.question_type === 'coding') {
+      const stat = codingMap.get(q.question_id.toString());
+      total = stat?.total ?? 0;
+      correct = stat?.accepted ?? 0;
+    } else {
+      total = q.attempt_answers.length;
+      correct = q.attempt_answers.filter((a) => a.is_correct).length;
+
+      avgTime =
+        q.attempt_answers.reduce((s, a) => s + (a.time_taken_seconds ?? 0), 0) / (total || 1);
+    }
 
     return {
       questionNo: index + 1,
       accuracy: Math.round((correct / (total || 1)) * 100),
       avgTimeSeconds: Math.round(avgTime),
-      difficulty: q.question?.difficulty_level ?? 'medium',
+      difficulty: q.question.difficulty_level ?? 'medium',
     };
   });
 }
@@ -147,6 +200,9 @@ export async function getCandidatePerformance(
     student: {
       institution_id: institutionId,
     },
+    status: {
+    in: ['submitted', 'evaluated'],
+  }
   };
   console.log("where", where)
   if (query.search) {

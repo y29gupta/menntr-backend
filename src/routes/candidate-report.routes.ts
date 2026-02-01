@@ -4,7 +4,7 @@ import { getCandidateReportHandler } from '../controllers/candidate-report.contr
 
 export async function candidateReportRoutes(app: any) {
   app.get(
-    '/assessments/:assessmentId/attempts/:attempt_number/report',
+    '/assessments/:assessmentId/attempts/:attemptId/report',
     { preHandler: [authGuard] },
     getCandidateReportHandler
   );

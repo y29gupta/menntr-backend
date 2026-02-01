@@ -716,3 +716,18 @@ model question_navigation_log {
   @@index([attempt_id])
   @@index([question_id])
 }
+
+model assessment_feedback {
+  id            BigInt   @id @default(autoincrement())
+  assessment_id BigInt
+  attempt_id    BigInt
+  student_id    BigInt
+
+  overall_rating Int      // 1–5 emojis
+  flow_rating    String   // smooth | acceptable | needs_improvement
+  comments       String?
+
+  created_at DateTime @default(now())
+
+  @@unique([attempt_id])
+}
