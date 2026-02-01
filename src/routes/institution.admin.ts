@@ -10,19 +10,23 @@ import {
   getModulesHandler,
   getRolesbasedOnRoleHierarchy,
   getRolesHierarchy,
+  getUserForEdit,
   listUsers,
+  updateUserFlexible,
 } from '../controllers/institution.admin.controller';
 import { authGuard } from '../hooks/auth.guard';
 
-export async function institutionAdminRoutes(fastify: FastifyInstance) {
-  fastify.get('/institutionsadmin/role-hierarchy', getRolesHierarchy);
-  fastify.get('/institutionsadmin/role-hierarchy/roles/:hierarchyId', getRolesbasedOnRoleHierarchy);
-  fastify.get('/institutionsadmin/modules', getModulesHandler);
-  fastify.get('/institutionsadmin/modules/features/:moduleId', getModuleFeaturesHandler);
-  fastify.get('/institutionsadmin/features/permissions/:featureCode', getFeaturePermissionsHandler);
-  fastify.post('/institutionsadmin/create-user', createUserFlexible);
-  fastify.post('/institutionsadmin/members', createInstitutionMemberHandler);
-  fastify.get('/institutionsadmin/user-management/users', listUsers);
-  fastify.post('/users/bulk-upload', bulkCreateUsersFromExcel);
-  fastify.patch('/users/status/:id', changeUserStatus);
+export async function institutionAdminRoutes(app: any) {
+  app.get('/institutionsadmin/role-hierarchy', { preHandler: [authGuard] }, getRolesHierarchy);
+  app.get('/institutionsadmin/role-hierarchy/roles/:hierarchyId', { preHandler: [authGuard] }, getRolesbasedOnRoleHierarchy);
+  app.get('/institutionsadmin/modules', { preHandler: [authGuard] }, getModulesHandler);
+  app.get('/institutionsadmin/modules/features/:moduleId', { preHandler: [authGuard] }, getModuleFeaturesHandler);
+  app.get('/institutionsadmin/features/permissions/:featureCode', { preHandler: [authGuard] }, getFeaturePermissionsHandler);
+  app.post('/institutionsadmin/create-user', { preHandler: [authGuard] }, createUserFlexible);
+  app.post('/institutionsadmin/members', { preHandler: [authGuard] }, createInstitutionMemberHandler);
+  app.get('/institutionsadmin/user-management/users', { preHandler: [authGuard] }, listUsers);
+  app.post('/users/bulk-upload', { preHandler: [authGuard] }, bulkCreateUsersFromExcel);
+  app.patch('/users/status/:id', { preHandler: [authGuard] }, changeUserStatus);
+  app.get('/users/:userId/edit', { preHandler: [authGuard] }, getUserForEdit);
+  app.put('/users/:userId', { preHandler: [authGuard] }, updateUserFlexible);
 }

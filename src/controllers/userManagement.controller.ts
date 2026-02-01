@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { ForbiddenError } from '../utils/errors';
-import { getUsersForManagement } from '../services/userManagement.service';
+import { getUsersForManagement, getBatchesForFacultyAssignment } from '../services/userManagement.service';
 import { Serializer } from '../utils/serializers';
 
 export async function listUsers(
@@ -63,4 +63,25 @@ export async function listUsers(
     limit: Number(limit),
     data,
   });
+}
+
+export async function getBatchesForFaculty(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const prisma = req.prisma;
+  const user_id = BigInt((req as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const data = await getBatchesForFacultyAssignment(prisma, user.institution_id);
+
+  reply.send(data);
 }
