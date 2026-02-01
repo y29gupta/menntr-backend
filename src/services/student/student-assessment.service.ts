@@ -9,6 +9,38 @@ import { randomUUID } from 'crypto';
 import { buildPaginatedResponse, getPagination } from '../../utils/pagination';
 
 type StudentAssessmentStatus = 'ongoing' | 'upcoming' | 'completed' | 'published';
+function getPendingInfo(
+  endTime: Date | null,
+  now: Date
+): { pending: boolean; pending_reason?: 'ending_today' | 'ending_soon' } {
+  if (!endTime) return { pending: false };
+
+  const end = endTime.getTime();
+  const nowMs = now.getTime();
+
+  if (end <= nowMs) {
+    return { pending: false };
+  }
+
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  const sevenDaysMs = 7 * oneDayMs;
+
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const endOfToday = new Date(startOfToday);
+  endOfToday.setHours(23, 59, 59, 999);
+
+  if (end >= startOfToday.getTime() && end <= endOfToday.getTime()) {
+    return { pending: true, pending_reason: 'ending_today' };
+  }
+
+  if (end <= nowMs + sevenDaysMs) {
+    return { pending: true, pending_reason: 'ending_soon' };
+  }
+
+  return { pending: false };
+}
 
 export async function listStudentAssessments(
   prisma: PrismaClient,
@@ -90,6 +122,10 @@ export async function listStudentAssessments(
   return {
     assessments: filtered.map((a) => {
       const attempt = a.attempts[0];
+      const hasSubmitted = attempt?.status === AttemptStatus.submitted || attempt?.status === AttemptStatus.evaluated;
+
+      const pendingInfo = !hasSubmitted ? getPendingInfo(a.end_time, now) : {pending: false};
+
       const isStarted = !a.start_time || a.start_time <= now;
 
       return {
@@ -114,10 +150,12 @@ export async function listStudentAssessments(
         attempt_status: attempt?.status ?? 'not_started',
 
         can_start:
-          isStarted &&
           (!attempt ||
             (attempt.status !== AttemptStatus.submitted &&
               attempt.status !== AttemptStatus.evaluated)),
+
+        pending: pendingInfo.pending,
+        pending_reason: pendingInfo.pending_reason ?? null,
       };
     }),
   };
