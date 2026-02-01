@@ -18,15 +18,49 @@ export async function getRuntimeConfig(prisma: PrismaClient, input: any) {
     include: { assessment: true, attempt: true },
   });
 
-  if (!session || session.attempt.status !== AttemptStatus.in_progress) {
-    throw new Error('Assessment not active');
+  if (!session) {
+    throw new Error('Session not found');
   }
 
+  // If already submitted -> stop exam
+  if(session.attempt.status === AttemptStatus.evaluated) {
+    return {
+      status: 'completed',
+      remaining_seconds: 0,
+    }
+  }
+
+  const assessment = session.assessment;
+  const startMs = session.attempt.started_at.getTime();
+  const durationMs = assessment.duration_minutes * 60 * 1000;
+  const nowMs = Date.now();
+
+  // Absolute end
+  const absoluteEndMs = assessment.end_time ? assessment.end_time.getTime() : startMs + durationMs;
+
+  const examEndMs = Math.min(startMs + durationMs, absoluteEndMs);
+
+  const remainingMs = examEndMs - nowMs;
+
+  // Time over -> auto submit
+  if(remainingMs <= 0) {
+    await submitAssessment(prisma, {
+      student_id: input.student_id,
+      assessment_id: input.assessment_id,
+    });
+
+    return {
+      status: 'auto_submitted',
+      remaining_seconds: 0,
+    };
+  }
   const totalQuestions = await prisma.assessment_questions.count({
     where: { assessment_id: session.assessment_id },
   });
 
   return {
+    status: 'in_progress',
+    remaining_seconds: Math.ceil(remainingMs / 1000),
     duration_minutes: session.assessment.duration_minutes,
     allow_backtrack: session.assessment.allow_backtrack,
     allow_question_skip: session.assessment.allow_question_skip,
