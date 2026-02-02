@@ -124,6 +124,7 @@ export async function getQuestion(prisma: PrismaClient, input: any) {
       type: 'coding',
 
       title: meta.problem_title,
+      question_type: meta.problem_title,
       description: meta.problem_statement,
 
       constraints: meta.constraints ?? null,
