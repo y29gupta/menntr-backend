@@ -123,8 +123,8 @@ export async function getQuestion(prisma: PrismaClient, input: any) {
       question_id: q.id.toString(),
       type: 'coding',
 
-      title: q.question_text,
-      description: q.question_text,
+      title: meta.problem_title,
+      description: meta.problem_statement,
 
       constraints: meta.constraints ?? null,
       examples: meta.sample_test_cases ?? [],
