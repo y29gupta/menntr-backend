@@ -152,13 +152,13 @@ export async function createAssessmentHandler(req: FastifyRequest, reply: Fastif
   const { question_type } = parsed.data;
 
   // 2️⃣ Resolve permission
-  // const requiredPermission = QUESTION_TYPE_TO_PERMISSION[question_type];
-  // if (!requiredPermission) {
-  //   throw new ValidationError('Unsupported question type');
-  // }
+  const requiredPermission = QUESTION_TYPE_TO_PERMISSION[question_type];
+  if (!requiredPermission) {
+    throw new ValidationError('Unsupported question type');
+  }
 
   // 3️⃣ Permission check
-  // requirePermission(user, requiredPermission);
+  requirePermission(user, requiredPermission);
 
   // 4️⃣ Resolve feature code
   const featureCode = QUESTION_TYPE_TO_FEATURE_CODE[question_type];

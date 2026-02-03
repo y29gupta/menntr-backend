@@ -32,6 +32,8 @@ import {assessmentSettingsRoutes} from "./routes/assessment-settings.routes";
 import {candidateReportRoutes} from "./routes/candidate-report.routes";
 import {proctoringInsightsRoutes} from "./routes/proctoring-insights.routes";
 import {studentAssessmentRuntimeRoutes} from "./routes/student/student-assessment.runtime.routes";
+import {broadcastRoutes} from "./routes/broadcast.routes";
+import {notificationRoutes} from "./routes/notification.routes";
 import { rateLimitPlugin } from './plugins/rateLimit';
 
 export function buildApp() {
@@ -131,6 +133,8 @@ export function buildApp() {
   app.register(candidateReportRoutes);
   app.register(proctoringInsightsRoutes);
   app.register(studentAssessmentRuntimeRoutes);
+  app.register(broadcastRoutes);
+  app.register(notificationRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {
