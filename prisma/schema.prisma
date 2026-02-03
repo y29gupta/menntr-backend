@@ -337,7 +337,7 @@ model batch_sections {
 model assessments {
   id                     BigInt                 @id @default(autoincrement())
   institution_id         Int
-  feature_id             Int
+  feature_id             Int?
   title                  String
   description            String?
   created_by             BigInt
@@ -374,7 +374,7 @@ model assessments {
   questions              assessment_questions[]
   students               assessment_students[]
   creator                users                  @relation("AssessmentCreator", fields: [created_by], references: [id])
-  feature                features               @relation(fields: [feature_id], references: [id])
+  feature                features?               @relation(fields: [feature_id], references: [id])
   institution            institutions           @relation(fields: [institution_id], references: [id])
 
   assessment_sessions assessment_sessions[]

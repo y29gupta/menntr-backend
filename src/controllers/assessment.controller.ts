@@ -143,49 +143,20 @@ export async function questionMetaHandler(_: FastifyRequest, reply: FastifyReply
 export async function createAssessmentHandler(req: FastifyRequest, reply: FastifyReply) {
   const user = req.user as any;
 
-  // 1️⃣ Validate body
   const parsed = CreateAssessmentSchema.safeParse(req.body);
   if (!parsed.success) {
     throw new ValidationError('Invalid request', parsed.error.issues);
   }
 
-  const { question_type } = parsed.data;
-
-  // 2️⃣ Resolve permission
-  const requiredPermission = QUESTION_TYPE_TO_PERMISSION[question_type];
-  if (!requiredPermission) {
-    throw new ValidationError('Unsupported question type');
-  }
-
-  // 3️⃣ Permission check
-  requirePermission(user, requiredPermission);
-
-  // 4️⃣ Resolve feature code
-  const featureCode = QUESTION_TYPE_TO_FEATURE_CODE[question_type];
-  if (!featureCode) {
-    throw new ValidationError('Assessment feature not supported');
-  }
-
-  // 5️⃣ Fetch feature (single source of truth)
-  const feature = await req.prisma.features.findUnique({
-    where: { code: featureCode },
-    select: { id: true },
-  });
-
-  if (!feature) {
-    throw new ValidationError('Assessment feature not configured');
-  }
-
-  // 6️⃣ Create assessment
   const assessment = await service.createAssessment(req.prisma, {
     ...parsed.data,
     institution_id: user.institution_id,
     created_by: BigInt(user.sub),
-    feature_id: feature.id,
   });
 
   reply.send(assessment);
 }
+
 
 // STEP 2 – Assign Audience
 export async function assignAudienceHandler(
@@ -297,10 +268,13 @@ export async function createMCQQuestionHandler(
 
   const result = await service.createMCQQuestion(
     req.prisma,
-    BigInt(req.params.id),
-    user.institution_id,
-    BigInt(user.sub),
-    req.body
+    {
+      assessment_id:BigInt(req.params.id),
+      institution_id: user.institution_id,
+      created_by: BigInt(user.sub),
+      question_type: 'mcq',
+      body: req.body,
+    }
   );
 
   reply.send(result);
@@ -436,13 +410,13 @@ export async function createCodingQuestionHandler(
 ) {
   const user = req.user as any;
 
-  const result = await service.createCodingQuestion(
-    req.prisma,
-    BigInt(req.params.id),
-    user.institution_id,
-    BigInt(user.sub),
-    req.body
-  );
+  const result = await service.createCodingQuestion(req.prisma, {
+    assessment_id: BigInt(req.params.id),
+    institution_id: user.institution_id,
+    created_by: BigInt(user.sub),
+    question_type: 'coding',
+    body: req.body,
+  });
 
   reply.send(result);
 }

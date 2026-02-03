@@ -13,7 +13,6 @@ export const CreateAssessmentSchema = z.object({
 
   assessment_type: z.enum(['practice', 'mock', 'assignment']),
 
-  question_type: z.enum(['mcq', 'coding', 'manual']),
 });
 
 
