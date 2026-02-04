@@ -22,6 +22,10 @@ app.get(
 );
   // app.post('/organization/category', addCategory);
   // app.post('/organization/department', addDepartment);
-  // app.put('/organization/hierarchy/:id/move', moveNode);
+  app.put(
+    '/organization/hierarchy/:id/move',
+    { preHandler: [authGuard] },
+    moveNode
+  );
   // app.delete('/organization/hierarchy/:id', deleteNode);
 }

@@ -18,11 +18,7 @@ export const CreateDepartmentSchema = z.object({
     .nullable()
     .optional(),
 
-  hod_user_id: z
-    .number()
-    .int('HOD user ID must be an integer')
-    .positive('HOD user ID must be positive')
-    .optional(),
+  // hod_user_id removed - users can be assigned later via user_roles table
 });
 
 export const UpdateDepartmentSchema = z
@@ -46,12 +42,7 @@ export const UpdateDepartmentSchema = z
       .nullable()
       .optional(),
 
-    hod_user_id: z
-      .number()
-      .int('HOD user ID must be an integer')
-      .positive('HOD user ID must be positive')
-      .nullable()
-      .optional(),
+    // hod_user_id removed
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field must be provided to update department',

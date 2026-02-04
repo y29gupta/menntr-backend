@@ -10,6 +10,41 @@ import { buildPaginatedResponse, getPagination } from '../utils/pagination';
 const DEPARTMENT_LEVEL = 3;
 const CATEGORY_LEVEL = 2;
 
+// Helper function to assign permissions to a role based on plan and hierarchy
+async function assignPermissionsToRole(
+  tx: any,
+  roleId: number,
+  planCode: string | null,
+  roleHierarchyId: number
+) {
+  if (!planCode) {
+    // If no plan, skip permission assignment
+    return;
+  }
+
+  // Get permissions from plan_role_permissions based on plan_code and role_hierarchy_id
+  const planRolePermissions = await tx.plan_role_permissions.findMany({
+    where: {
+      plan_code: planCode,
+      role_hierarchy_id: roleHierarchyId,
+    },
+    select: {
+      permission_id: true,
+    },
+  });
+
+  if (planRolePermissions.length > 0) {
+    // Insert permissions into role_permissions table
+    await tx.role_permissions.createMany({
+      data: planRolePermissions.map((prp: any) => ({
+        role_id: roleId,
+        permission_id: prp.permission_id,
+      })),
+      skipDuplicates: true,
+    });
+  }
+}
+
 export interface CreateDepartmentInput {
   name: string;
   code: string;
@@ -21,7 +56,7 @@ export interface UpdateDepartmentInput {
   name?: string;
   code?: string;
   category_id?: number | null;
-  hod_user_id?: number | null;
+  // hod_user_id removed - users can be assigned via user_roles table
 }
 
 export async function getDepartments(
@@ -128,52 +163,37 @@ export async function createDepartment(
       throw new ConflictError('Department code already exists');
     }
 
-    // 3️⃣ Create department
+    // 3️⃣ Get institution plan code for permission assignment
+    const institution = await tx.institutions.findUnique({
+      where: { id: institution_id },
+      select: {
+        plan_id: true,
+        plan: {
+          select: {
+            code: true,
+          },
+        },
+      },
+    });
+
+    const planCode = institution?.plan?.code || null;
+
+    // 4️⃣ Create department
     const department = await tx.roles.create({
       data: {
         name: input.name,
         code: input.code,
-        institution_id:institution_id,
+        institution_id: institution_id,
         parent_id: input.category_id ?? null,
         role_hierarchy_id: DEPARTMENT_LEVEL,
         is_system_role: false,
       },
     });
 
-    // 4️⃣ Assign HOD
-    if (input.hod_user_id !== undefined) {
-      const hod = await tx.users.findFirst({
-        where: {
-          id: BigInt(input.hod_user_id),
-          institution_id,
-        },
-      });
+    // 5️⃣ Assign permissions from plan_role_permissions
+    await assignPermissionsToRole(tx, department.id, planCode, DEPARTMENT_LEVEL);
 
-      if (!hod) {
-        throw new ForbiddenError('Invalid HOD user');
-      }
-      const existingHod = await tx.user_roles.findFirst({
-        where: {
-          user_id: BigInt(input.hod_user_id),
-          role: {
-            institution_id,
-            role_hierarchy_id: DEPARTMENT_LEVEL,
-            is_system_role: false,
-          },
-        },
-      });
-
-      if (existingHod) {
-        throw new ConflictError('User is already assigned as HOD to another department');
-      }
-
-      await tx.user_roles.create({
-        data: {
-          role_id: department.id,
-          user_id: BigInt(input.hod_user_id),
-        },
-      });
-    }
+    // Note: Users can be assigned to this department later via user_roles table
 
     return department;
   });
@@ -235,59 +255,20 @@ export async function updateDepartment(
       }
     }
 
-    // 4️⃣ Update department
+    // 4️⃣ Update department (role_hierarchy_id is NEVER changed - always level 3)
     const updated = await tx.roles.update({
       where: { id: departmentId },
       data: {
         ...(input.name && { name: input.name }),
         ...(input.code && { code: input.code }),
         ...(input.category_id !== undefined && {
-          parentId: input.category_id,
+          parent_id: input.category_id,
         }),
+        // role_hierarchy_id is NOT updated - always remains DEPARTMENT_LEVEL (3)
       },
     });
 
-    // 5️⃣ Update HOD
-    if (input.hod_user_id !== undefined) {
-      await tx.user_roles.deleteMany({
-        where: { role_id: departmentId },
-      });
-
-      if (input.hod_user_id !== null) {
-        const hod = await tx.users.findFirst({
-          where: {
-            id: BigInt(input.hod_user_id),
-            institution_id,
-          },
-        });
-
-        if (!hod) {
-          throw new ForbiddenError('Invalid HOD user');
-        }
-
-        const existingHod = await tx.user_roles.findFirst({
-          where: {
-            user_id: BigInt(input.hod_user_id),
-            role: {
-              institution_id,
-              role_hierarchy_id: DEPARTMENT_LEVEL,
-              is_system_role: false,
-              id: {not: departmentId},
-            },
-          },
-        });
-
-        if(existingHod) {
-          throw new ConflictError('User is already assigned as HOD to another department');
-        }
-        await tx.user_roles.create({
-          data: {
-            role_id: departmentId,
-            user_id: BigInt(input.hod_user_id),
-          },
-        });
-      }
-    }
+    // Note: Users can be assigned/updated via user_roles table separately
 
     return updated;
   });
@@ -299,13 +280,12 @@ export async function getDepartmentMeta(
   institution_id: number
 ) {
   const [categories, hodUsers] = await Promise.all([
-    // ✅ Parent Categories
+    // ✅ Parent Categories - Include all categories (even without codes) to show default engineering category
     prisma.roles.findMany({
       where: {
         institution_id,
         role_hierarchy_id: CATEGORY_LEVEL,
         is_system_role: false,
-        code: { not: null },
       },
       select: {
         id: true,

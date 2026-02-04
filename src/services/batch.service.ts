@@ -418,26 +418,57 @@ export async function getBatchMeta(
       orderBy: { name: 'asc' },
     }),
 
-    // ✅ for now: all users
-    prisma.users.findMany({
-      where: { institution_id },
+    // ✅ Get faculty roles (level 4) with their parent_id (department)
+    prisma.roles.findMany({
+      where: {
+        institution_id,
+        role_hierarchy_id: 4,
+        is_system_role: false,
+      },
       select: {
         id: true,
-        first_name: true,
-        last_name: true,
-        email: true,
+        name: true,
+        parent_id: true,
       },
-      orderBy: { first_name: 'asc' },
+      orderBy: { name: 'asc' },
     }),
   ]);
+
+  // ✅ Get users assigned to faculty roles, grouped by role
+  const facultyRoles = await Promise.all(
+    faculties.map(async (facultyRole: any) => {
+      const users = await prisma.user_roles.findMany({
+        where: {
+          role_id: facultyRole.id,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              first_name: true,
+              last_name: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      return {
+        roleId: facultyRole.id,
+        roleName: facultyRole.name,
+        parentId: facultyRole.parent_id,
+        users: users.map((ur: any) => ({
+          id: ur.user.id.toString(),
+          name: `${ur.user.first_name ?? ''} ${ur.user.last_name ?? ''}`.trim(),
+          email: ur.user.email,
+        })),
+      };
+    })
+  );
 
   return {
     categories,
     departments,
-    faculties: faculties.map(f => ({
-      id: f.id.toString(),
-      name: `${f.first_name ?? ''} ${f.last_name ?? ''}`.trim(),
-      email: f.email,
-    })),
+    facultyRoles, // Return faculty roles with users grouped by role
   };
 }

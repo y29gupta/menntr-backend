@@ -136,6 +136,9 @@ export async function loginHandler(request: FastifyRequest, reply: FastifyReply)
 
     const { email, password, institution_code } = parsed.data;
 
+    // Log attempt for debugging
+    logger.info('LOGIN_ATTEMPT', { email: email, institution_code });
+
     /**
      * 2. Find user
      */
@@ -371,10 +374,38 @@ export async function generateInviteHandler(request: FastifyRequest, reply: Fast
       },
     });
 
+    // Fetch institution data for email
+    const institution = await prisma.institutions.findUnique({
+      where: { id: institution_id },
+      select: {
+        name: true,
+        code: true,
+      },
+    });
+
+    // Get inviter name
+    const inviter = await prisma.users.findUnique({
+      where: { id: BigInt(currentUser.sub) },
+      select: {
+        first_name: true,
+        last_name: true,
+      },
+    });
+
+    const inviterName = inviter
+      ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim()
+      : undefined;
+
     await new EmailService(request.server.mailer).sendInvite(
       email,
       `${config.auth.oneTimeLinkBase}?token=${token}`,
-      'institution'
+      'institution',
+      {
+        recipientName: `${first_name || ''} ${last_name || ''}`.trim() || undefined,
+        institutionName: institution?.name,
+        institutionCode: institution?.code,
+        inviterName,
+      }
     );
 
     logger.audit({

@@ -138,8 +138,8 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
       },
     });
 
-    // Find or create "Institution Admin" role for this institution
-    let institutionAdminRole = await prisma.roles.findFirst({
+    // Find "Institution Admin" role for this institution (should exist from default roles)
+    const institutionAdminRole = await prisma.roles.findFirst({
       where: {
         name: 'Institution Admin',
         institution_id: institution_id,
@@ -149,15 +149,7 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
     });
 
     if (!institutionAdminRole) {
-      // Create role if it doesn't exist
-      institutionAdminRole = await prisma.roles.create({
-        data: {
-          name: 'Institution Admin',
-          institution_id,
-          is_system_role: false,
-          role_hierarchy_id: 1
-        },
-      });
+      throw new Error('Institution Admin role not found. Default roles may not have been created.');
     }
 
     // Assign role to user

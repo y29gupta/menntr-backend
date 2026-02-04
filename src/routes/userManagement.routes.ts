@@ -1,4 +1,4 @@
-import { listUsers } from '../controllers/userManagement.controller';
+import { listUsers, getBatchesForFaculty } from '../controllers/userManagement.controller';
 import { authGuard } from '../hooks/auth.guard';
 
 export async function userManagementRoutes(app: any) {
@@ -6,5 +6,11 @@ export async function userManagementRoutes(app: any) {
     '/user-management/users',
     { preHandler: [authGuard] },
     listUsers
+  );
+
+  app.get(
+    '/user-management/batches-for-faculty',
+    { preHandler: [authGuard] },
+    getBatchesForFaculty
   );
 }

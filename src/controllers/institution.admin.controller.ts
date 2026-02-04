@@ -683,6 +683,44 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
             assigned_at: new Date(),
           },
         });
+
+        // If faculty role (level 4) and batchIds provided, assign batches
+        if (role?.role_hierarchy_id === 4 && payload.batchIds && payload.batchIds.length > 0) {
+          // Validate batchIds belong to institution
+          const validBatches = await tx.batches.findMany({
+            where: {
+              id: { in: payload.batchIds },
+              institution_id: institutionId,
+              is_active: true,
+            },
+            select: { id: true, metadata: true },
+          });
+
+          if (validBatches.length !== payload.batchIds.length) {
+            warnings.push('Some batch IDs were invalid and skipped');
+          }
+
+          // Store batch assignments in batches metadata
+          // TODO: Create a proper batch_faculty junction table for better querying
+          for (const batch of validBatches) {
+            const metadata = (batch.metadata as any) || {};
+            const facultyIds = metadata.faculty_ids || [];
+            
+            if (!facultyIds.includes(Number(user.id))) {
+              facultyIds.push(Number(user.id));
+            }
+
+            await tx.batches.update({
+              where: { id: batch.id },
+              data: {
+                metadata: {
+                  ...metadata,
+                  faculty_ids: facultyIds,
+                },
+              },
+            });
+          }
+        }
       }
 
       if (permissionsToGrant.length > 0) {
@@ -1214,5 +1252,299 @@ export async function changeUserStatus(
     return reply.code(500).send({
       error: 'Failed to update user status',
     });
+  }
+}
+
+/**
+ * GET /api/users/:userId/edit
+ * Fetches user data for edit mode with calculated final permissions
+ */
+export async function getUserForEdit(
+  request: FastifyRequest<{ Params: { userId: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const prisma = request.prisma;
+    const authUser = request.user as any;
+    const institutionId = Number(authUser?.institution_id);
+    const userId = BigInt(request.params.userId);
+
+    if (!institutionId) {
+      return reply.code(401).send({ error: 'Invalid or missing authentication token' });
+    }
+
+    /* 1️⃣ Fetch user */
+    const user = await prisma.users.findFirst({
+      where: {
+        id: userId,
+        institution_id: institutionId,
+      },
+    });
+
+    if (!user) {
+      return reply.code(404).send({ error: 'User not found' });
+    }
+
+    /* 2️⃣ Fetch role + hierarchy */
+    const userRole = await prisma.user_roles.findFirst({
+      where: { user_id: userId },
+      include: {
+        role: {
+          include: { hierarchy: true },
+        },
+      },
+    });
+
+    /* 3️⃣ Fetch role permissions */
+    let rolePermissionIds: number[] = [];
+    if (userRole?.role) {
+      const rolePerms = await prisma.role_permissions.findMany({
+        where: { role_id: userRole.role.id },
+        select: { permission_id: true },
+      });
+      rolePermissionIds = rolePerms.map((rp: any) => rp.permission_id);
+    }
+
+    /* 4️⃣ Fetch user overrides */
+    const overrides = await prisma.user_permission_overrides.findMany({
+      where: { user_id: userId },
+    });
+
+    const granted = overrides
+      .filter((o: any) => o.override_type === 'grant')
+      .map((o: any) => o.permission_id);
+
+    const revoked = overrides
+      .filter((o: any) => o.override_type === 'revoke')
+      .map((o: any) => o.permission_id);
+
+    /* 5️⃣ Calculate final permissions */
+    const finalPermissionIds = [
+      ...new Set(
+        rolePermissionIds.filter((pid: number) => !revoked.includes(pid)).concat(granted)
+      ),
+    ];
+
+    /* 6️⃣ Fetch all permissions with feature & module */
+    const permissions = await prisma.permissions.findMany({
+      include: {
+        feature: {
+          include: { module: true },
+        },
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    /* 7️⃣ Build permission tree */
+    const moduleMap = new Map<string, any>();
+    for (const perm of permissions) {
+      const feature = (perm as any).feature;
+      const module = feature?.module;
+      if (!feature || !module) continue;
+
+      if (!moduleMap.has(module.code)) {
+        moduleMap.set(module.code, {
+          moduleCode: module.code,
+          moduleName: module.name,
+          features: new Map<string, any>(),
+        });
+      }
+
+      const moduleEntry = moduleMap.get(module.code);
+      if (!moduleEntry.features.has(feature.code)) {
+        moduleEntry.features.set(feature.code, {
+          featureCode: feature.code,
+          featureName: feature.name,
+          permissions: [],
+        });
+      }
+
+      moduleEntry.features.get(feature.code).permissions.push({
+        permissionId: perm.id,
+        permissionName: perm.permission_name,
+        checked: finalPermissionIds.includes(perm.id),
+      });
+    }
+
+    const permissionTree = Array.from(moduleMap.values()).map((m: any) => ({
+      moduleCode: m.moduleCode,
+      moduleName: m.moduleName,
+      features: Array.from(m.features.values()),
+    }));
+
+    /* 8️⃣ Fetch batch assignments for faculty users */
+    let batchIds: number[] = [];
+    if (userRole?.role?.role_hierarchy_id === 4) {
+      // Faculty role (hierarchy level 4)
+      const batches = await prisma.batches.findMany({
+        where: {
+          institution_id: institutionId,
+          is_active: true,
+        },
+        select: {
+          id: true,
+          metadata: true,
+        },
+      });
+
+      batchIds = batches
+        .filter((batch: { id: number; metadata: any }) => {
+          const metadata = (batch.metadata as any) || {};
+          const facultyIds = metadata.faculty_ids || [];
+          return facultyIds.includes(Number(userId));
+        })
+        .map((batch: { id: number; metadata: any }) => batch.id);
+    }
+
+    return reply.send({
+      user: {
+        id: user.id.toString(),
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        status: user.status,
+      },
+      role: userRole?.role
+        ? {
+            id: userRole.role.id,
+            name: userRole.role.name,
+            roleHierarchyId: userRole.role.hierarchy?.id ?? null,
+            roleHierarchyName: userRole.role.hierarchy?.name ?? null,
+          }
+        : null,
+      permissions: permissionTree,
+      batchIds,
+    });
+  } catch (err: any) {
+    request.log.error(err, 'getUserForEdit failed');
+    return reply.code(500).send({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/users/:userId
+ * Updates user profile, role, and permissions with diff logic
+ */
+export async function updateUserFlexible(
+  request: FastifyRequest<{ Params: { userId: string } }>,
+  reply: FastifyReply
+) {
+  try {
+    const prisma = request.prisma;
+    const authUser = request.user as any;
+    const institutionId = Number(authUser?.institution_id);
+    const userId = BigInt(request.params.userId);
+    const updatedBy = authUser?.sub ? BigInt(authUser.sub) : null;
+    const body = request.body as any;
+    const payload = body.payload ?? body;
+
+    if (!institutionId) {
+      return reply.code(401).send({ error: 'Invalid or missing authentication token' });
+    }
+
+    /* 1️⃣ Validate user */
+    const user = await prisma.users.findFirst({
+      where: {
+        id: userId,
+        institution_id: institutionId,
+      },
+    });
+
+    if (!user) {
+      return reply.code(404).send({ error: 'User not found' });
+    }
+
+    /* 2️⃣ Validate role and fetch role permissions */
+    let rolePermissionIds: number[] = [];
+    if (payload.roleId) {
+      const role = await prisma.roles.findFirst({
+        where: {
+          id: payload.roleId,
+          institution_id: institutionId,
+        },
+      });
+
+      if (!role) {
+        return reply.code(400).send({ error: 'Invalid role for this institution' });
+      }
+
+      const rolePerms = await prisma.role_permissions.findMany({
+        where: { role_id: payload.roleId },
+        select: { permission_id: true },
+      });
+      rolePermissionIds = rolePerms.map((rp: any) => rp.permission_id);
+    }
+
+    /* 3️⃣ Calculate permission diff */
+    const permissionsToGrant = (payload.permissionIds || []).filter(
+      (pid: number) => !rolePermissionIds.includes(pid)
+    );
+    const permissionsToRevoke = rolePermissionIds.filter(
+      (pid: number) => !(payload.permissionIds || []).includes(pid)
+    );
+
+    /* 4️⃣ Transaction */
+    await prisma.$transaction(async (tx: any) => {
+      // Update user profile
+      await tx.users.update({
+        where: { id: userId },
+        data: {
+          first_name: payload.firstName,
+          last_name: payload.lastName,
+          updated_at: new Date(),
+        },
+      });
+
+      // Update role
+      await tx.user_roles.deleteMany({ where: { user_id: userId } });
+      if (payload.roleId) {
+        await tx.user_roles.create({
+          data: {
+            user_id: userId,
+            role_id: payload.roleId,
+            assigned_by: updatedBy,
+            assigned_at: new Date(),
+          },
+        });
+      }
+
+      // Reset permission overrides
+      await tx.user_permission_overrides.deleteMany({
+        where: { user_id: userId },
+      });
+
+      // Insert grants
+      if (permissionsToGrant.length > 0) {
+        await tx.user_permission_overrides.createMany({
+          data: permissionsToGrant.map((pid: number) => ({
+            user_id: userId,
+            permission_id: pid,
+            override_type: 'grant',
+            reason: 'Granted during user update',
+            granted_by: updatedBy,
+            granted_at: new Date(),
+          })),
+        });
+      }
+
+      // Insert revokes
+      if (permissionsToRevoke.length > 0) {
+        await tx.user_permission_overrides.createMany({
+          data: permissionsToRevoke.map((pid: number) => ({
+            user_id: userId,
+            permission_id: pid,
+            override_type: 'revoke',
+            reason: 'Revoked during user update',
+            granted_by: updatedBy,
+            granted_at: new Date(),
+          })),
+        });
+      }
+    });
+
+    return reply.send({ message: 'User updated successfully' });
+  } catch (err: any) {
+    request.log.error(err, 'updateUserFlexible failed');
+    return reply.code(500).send({ error: 'Internal server error' });
   }
 }

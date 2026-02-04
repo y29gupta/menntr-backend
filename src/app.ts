@@ -18,11 +18,13 @@ import { forgotPasswordRoutes } from './routes/forgot-password';
 import { departmentRoutes } from './routes/department.routes';
 import { organizationRoutes } from './routes/organization.routes';
 import { categoryRoutes } from './routes/category.routes';
+import { programRoutes } from './routes/program.routes';
 import {userManagementRoutes} from './routes/userManagement.routes';
 import { batchRoutes } from './routes/batch.routes';
 // import {mcqRoutes} from './routes/mcq.routes';
 import { assessmentRoutes } from './routes/assessment.routes';
 // import multipart from '@fastify/multipart';
+import planRoutesModule from './routes/plan.routes';
 import {institutionAdminRoutes} from './routes/institution.admin';
 import {dashboardRoutes} from "./routes/dashboard.routes";
 import {studentRoutes} from "./routes/student.routes";
@@ -116,11 +118,13 @@ export function buildApp() {
   app.register(adminRoutes);
   app.register(authRoutes, { prefix: '/auth' });
   app.register(institutionRoutes);
-  app.register(planRoutes);
+  app.register(planRoutes); // from institutions.ts
+  app.register(planRoutesModule); // from plan.routes.ts
   app.register(forgotPasswordRoutes);
   app.register(departmentRoutes);
   app.register(organizationRoutes);
   app.register(categoryRoutes);
+  app.register(programRoutes);
   app.register(userManagementRoutes);
   app.register(batchRoutes);
   // app.register(mcqRoutes);

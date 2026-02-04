@@ -9,7 +9,8 @@ export type AddDepartmentBody = {
 };
 
 export type MoveNodeBody = {
-  newParentId: number | null;
+  newParentId?: number | null;
+  newOrder?: number; // For reordering at same level
 };
 
 export type MoveNodeParams = {
