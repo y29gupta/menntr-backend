@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { BlobServiceClient, BlobSASPermissions } from '@azure/storage-blob';
+import { saveEvent } from '../controllers/proctoring.controller';
 
 type SasRequestBody = {
   attemptId: number;
@@ -32,4 +33,5 @@ export async function proctoringRoutes(app: FastifyInstance) {
 
     return { sasUrl, blobPath: blobName };
   });
+  app.post('/proctoring/event', saveEvent);
 }
