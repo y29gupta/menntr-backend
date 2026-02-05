@@ -285,7 +285,7 @@ export async function listAssessments(
   prisma: PrismaClient,
   params: {
     institution_id: number;
-    tab: 'active' | 'draft' | 'closed';
+    tab: 'active' | 'draft' | 'completed';
     page?: number;
     limit?: number;
     search?: string;
@@ -293,50 +293,89 @@ export async function listAssessments(
     category?: string;
   }
 ) {
-  const { page, limit, skip } = getPagination(params);
+  const page = Number.isFinite(params.page) && params.page! > 0 ? params.page! : 1;
+  const limit = Number.isFinite(params.limit) && params.limit! > 0 ? params.limit! : 10;
+  const skip = (page - 1) * limit;
 
-  let statusFilter: any = {};
-  if (params.tab === 'active') statusFilter = { status: { in: ['published', 'active'] } };
-  if (params.tab === 'draft') statusFilter = { status: 'draft' };
-  if (params.tab === 'closed') statusFilter = { status: { in: ['closed', 'archived'] } };
+  const now = new Date();
 
-  const where: any = {
-    institution_id: params.institution_id,
-    is_deleted: false,
-    ...statusFilter,
-  };
+  const AND: any[] = [{ institution_id: params.institution_id }, { is_deleted: false }];
 
-  if (params.status) where.status = params.status;
+  /* ---------------- TAB FILTER ---------------- */
+  if (params.tab === 'active') {
+    AND.push({ status: { in: ['published', 'active'] } });
+    AND.push({ OR: [{ end_time: null }, { end_time: { gt: now } }] });
+  }
 
+  if (params.tab === 'draft') {
+    AND.push({ status: 'draft' });
+  }
+
+  if (params.tab === 'completed') {
+    AND.push({
+      OR: [{ status: { in: ['closed', 'archived'] } }, { end_time: { lt: now } }],
+    });
+  }
+
+  /* ---------------- COLUMN FILTERS ---------------- */
+  if (params.status) {
+    AND.push({ status: params.status });
+  }
+
+  if (params.category) {
+    AND.push({
+      metadata: {
+        path: ['category'],
+        equals: params.category,
+      },
+    });
+  }
+
+  /* ---------------- GLOBAL SEARCH ---------------- */
   if (params.search) {
-    where.OR = [
-      { title: { contains: params.search, mode: 'insensitive' } },
-      { metadata: { path: ['category'], string_contains: params.search } },
-      {
-        batches: {
-          some: {
-            batch: { name: { contains: params.search, mode: 'insensitive' } },
+    const q = params.search.trim();
+
+    AND.push({
+      OR: [
+        { title: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { tags: { has: q } },
+        {
+          metadata: {
+            path: ['category'],
+            string_contains: q,
           },
         },
-      },
-    ];
+        {
+          batches: {
+            some: {
+              batch: {
+                name: { contains: q, mode: 'insensitive' },
+              },
+            },
+          },
+        },
+      ],
+    });
   }
+
+  const where = { AND };
 
   const [rows, total] = await Promise.all([
     prisma.assessments.findMany({
       where,
       skip,
       take: limit,
+      orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
       include: {
         questions: true,
         batches: { include: { batch: true } },
       },
-      orderBy: { updated_at: 'desc' },
     }),
     prisma.assessments.count({ where }),
   ]);
 
-  return buildPaginatedResponse(rows, total, page, limit);
+  return buildPaginatedResponse(rows, total, page, limit)
 }
 
 

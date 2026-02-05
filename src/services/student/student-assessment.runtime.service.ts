@@ -23,11 +23,11 @@ export async function getRuntimeConfig(prisma: PrismaClient, input: any) {
   }
 
   // If already submitted -> stop exam
-  if(session.attempt.status === AttemptStatus.evaluated) {
+  if (session.attempt.status === AttemptStatus.evaluated) {
     return {
       status: 'completed',
       remaining_seconds: 0,
-    }
+    };
   }
 
   const assessment = session.assessment;
@@ -43,7 +43,7 @@ export async function getRuntimeConfig(prisma: PrismaClient, input: any) {
   const remainingMs = examEndMs - nowMs;
 
   // Time over -> auto submit
-  if(remainingMs <= 0) {
+  if (remainingMs <= 0) {
     await submitAssessment(prisma, {
       student_id: input.student_id,
       assessment_id: input.assessment_id,
@@ -411,76 +411,82 @@ export async function getSubmitPreview(prisma: PrismaClient, input: any) {
 
   if (!attempt) throw new Error('Attempt not found');
 
-  const assessment = attempt.assessment;
+  // ✅ total_questions (prefer stored, fallback once)
+  const totalQuestions =
+    attempt.total_questions > 0
+      ? attempt.total_questions
+      : await prisma.assessment_questions.count({
+          where: { assessment_id: input.assessment_id },
+        });
 
-  const totalQuestions = await prisma.assessment_questions.count({
-    where: { assessment_id: input.assessment_id },
-  });
+  const attended = calculateAnsweredQuestions(attempt);
+  const unanswered = Math.max(totalQuestions - attended, 0);
 
-  // ---------------- ATTENDED COUNT ----------------
-  const mcqAnswered = new Set(attempt.answers.map((a) => a.assessment_question_id.toString()));
-
-  const codingAnswered = new Set(attempt.coding_submissions.map((c) => c.question_id.toString()));
-
-  const attended = new Set([...mcqAnswered, ...codingAnswered]).size;
-
-  // ---------------- TIME CALCULATION ----------------
   let timeTakenMinutes: number;
 
   if (attempt.status === AttemptStatus.evaluated && attempt.time_taken_seconds) {
-    // 🔒 LOCKED TIME (POST SUBMIT)
+    // 🔒 LOCKED AFTER SUBMIT
     timeTakenMinutes = Math.ceil(attempt.time_taken_seconds / 60);
   } else {
-    // ⏳ LIVE TIMER (DURING EXAM)
+    // ⏳ LIVE TIMER
     const now = Date.now();
     const start = attempt.started_at.getTime();
-    const maxMs = assessment.duration_minutes * 60 * 1000;
-
+    const maxMs = attempt.assessment.duration_minutes * 60 * 1000;
     const elapsedMs = Math.min(now - start, maxMs);
     timeTakenMinutes = Math.ceil(elapsedMs / (1000 * 60));
   }
 
-
   return {
+    total_questions: totalQuestions,
     attended,
-    unanswered: Math.max(totalQuestions - attended, 0),
+    unanswered,
     time_taken_minutes: timeTakenMinutes,
   };
 }
 
+
 /* ---------------- FINAL SUBMIT ---------------- */
 export async function submitAssessment(prisma: PrismaClient, input: any) {
   const attempt = await prisma.assessment_attempts.findFirst({
-    where: { assessment_id: input.assessment_id, student_id: input.student_id },
+    where: {
+      assessment_id: input.assessment_id,
+      student_id: input.student_id,
+    },
     include: {
       answers: true,
       coding_submissions: true,
       assessment: {
-        include: {
-          questions: true,
-        },
+        include: { questions: true },
       },
     },
   });
+
   if (!attempt) throw new Error('Attempt not found');
 
-  // If already submitted (DO NOT RECALCULATE)
-  if(attempt.status === AttemptStatus.evaluated) {
+  const totalQuestions = attempt.assessment.questions.length;
+
+  // 🔒 Already submitted → return stored truth
+  if (attempt.status === AttemptStatus.evaluated) {
     return {
       success: true,
       submission: {
+        total_questions: attempt.total_questions,
         attended: attempt.answered_questions,
-        unanswered: attempt.assessment.questions.length - attempt.answered_questions,
+        unanswered: Math.max(attempt.total_questions - attempt.answered_questions, 0),
         time_taken_minutes: Math.ceil((attempt.time_taken_seconds ?? 0) / 60),
       },
       message: 'Assessment already submitted',
       show_feedback: true,
     };
   }
-  // TOTAL SCORE (max possible)
+
+  // ✅ Calculate attended ONCE
+  const attended = calculateAnsweredQuestions(attempt);
+  const unanswered = Math.max(totalQuestions - attended, 0);
+
+  // ---------------- SCORE ----------------
   const totalScore = attempt.assessment.questions.reduce((s, q) => s + q.points, 0);
 
-  // OBTAINED SCORE
   const mcqScore = attempt.answers.reduce((s, a) => s + Number(a.points_earned ?? 0), 0);
 
   const codingScore = attempt.coding_submissions.reduce(
@@ -489,20 +495,20 @@ export async function submitAssessment(prisma: PrismaClient, input: any) {
   );
 
   const scoreObtained = mcqScore + codingScore;
-
-  // PERCENTAGE
   const percentage = totalScore > 0 ? (scoreObtained / totalScore) * 100 : 0;
 
-  // TIME TAKEN
-  const endTime = new Date();
-  const timeTakenSeconds = Math.floor((endTime.getTime() - attempt.started_at.getTime()) / 1000);
+  const timeTakenSeconds = Math.floor((Date.now() - attempt.started_at.getTime()) / 1000);
 
+  // ✅ SINGLE SOURCE WRITE
   await prisma.assessment_attempts.update({
-    where: { id: attempt!.id },
+    where: { id: attempt.id },
     data: {
       status: AttemptStatus.evaluated,
       submitted_at: new Date(),
       time_taken_seconds: timeTakenSeconds,
+      total_questions: totalQuestions,
+      answered_questions: attended,
+      skipped_questions: unanswered,
       score_obtained: scoreObtained,
       total_score: totalScore,
       percentage,
@@ -510,19 +516,30 @@ export async function submitAssessment(prisma: PrismaClient, input: any) {
   });
 
   await prisma.assessment_sessions.updateMany({
-    where: { attempt_id: attempt!.id },
+    where: { attempt_id: attempt.id },
     data: { is_active: false, ended_at: new Date() },
   });
 
   return {
     success: true,
     submission: {
-      attended: attempt.answered_questions,
-      unanswered: attempt.assessment.questions.length - attempt.answered_questions,
+      total_questions: totalQuestions,
+      attended,
+      unanswered,
       time_taken_minutes: Math.ceil(timeTakenSeconds / 60),
     },
     message: 'Assessment submitted successfully',
     show_feedback: true,
   };
+}
 
+
+function calculateAnsweredQuestions(attempt: any): number {
+  const mcqAnswered = new Set(attempt.answers.map((a: any) => a.assessment_question_id.toString()));
+
+  const codingAnswered = new Set(
+    attempt.coding_submissions.map((c: any) => c.question_id.toString())
+  );
+
+  return new Set([...mcqAnswered, ...codingAnswered]).size;
 }

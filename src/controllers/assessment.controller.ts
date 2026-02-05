@@ -237,18 +237,35 @@ export async function publishAssessmentHandler(
 
 // LIST & GET
 export async function listAssessmentsHandler(
-  req: FastifyRequest<{ Querystring: { tab?: string } }>,
+  req: FastifyRequest<{
+    Querystring: {
+      tab?: string;
+      page?: string;
+      limit?: string;
+      search?: string;
+      status?: string;
+      category?: string;
+    };
+  }>,
   reply: FastifyReply
 ) {
   const user = req.user as any;
+
   const tab = req.query.tab;
-  console.log("list assessment", user)
-  if (tab !== 'active' && tab !== 'draft' && tab !== 'closed') {
-    return reply.send({
-      message: 'Invalid tab value',
-    });
+  if (tab !== 'active' && tab !== 'draft' && tab !== 'completed') {
+    return reply.status(400).send({ message: 'Invalid tab value' });
   }
-  const list = await service.listAssessments(req.prisma, {institution_id:user.institution_id, tab});
+
+  const list = await service.listAssessments(req.prisma, {
+    institution_id: user.institution_id,
+    tab,
+    page: Number(req.query.page),
+    limit: Number(req.query.limit),
+    search: req.query.search,
+    status: req.query.status,
+    category: req.query.category,
+  });
+
   reply.send(list);
 }
 
