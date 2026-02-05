@@ -705,7 +705,7 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
           for (const batch of validBatches) {
             const metadata = (batch.metadata as any) || {};
             const facultyIds = metadata.faculty_ids || [];
-            
+
             if (!facultyIds.includes(Number(user.id))) {
               facultyIds.push(Number(user.id));
             }
@@ -1320,9 +1320,7 @@ export async function getUserForEdit(
 
     /* 5️⃣ Calculate final permissions */
     const finalPermissionIds = [
-      ...new Set(
-        rolePermissionIds.filter((pid: number) => !revoked.includes(pid)).concat(granted)
-      ),
+      ...new Set(rolePermissionIds.filter((pid: number) => !revoked.includes(pid)).concat(granted)),
     ];
 
     /* 6️⃣ Fetch all permissions with feature & module */
@@ -1546,5 +1544,56 @@ export async function updateUserFlexible(
   } catch (err: any) {
     request.log.error(err, 'updateUserFlexible failed');
     return reply.code(500).send({ error: 'Internal server error' });
+  }
+}
+
+export async function getStudentUsers(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    const prisma = request.server.prisma;
+
+    const users = await prisma.users.findMany({
+      where: {
+        user_roles: {
+          some: {
+            role: {
+              name: 'Student',
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        status: true,
+        updated_at: true,
+        user_roles: {
+          select: {
+            role: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return reply.code(200).send({
+      message: 'Student users fetched successfully',
+      count: users.length,
+      users: users.map((user: any) => ({
+        id: user.id.toString(),
+        email: user.email,
+        status: user.status,
+        roles: user.user_roles.map((ur: any) => ur.role.name),
+        updatedAt: user.updated_at,
+      })),
+    });
+  } catch (err: any) {
+    request.log.error(err, 'getStudentUsers failed');
+
+    return reply.code(500).send({
+      error: 'Failed to fetch student users',
+    });
   }
 }
