@@ -84,7 +84,6 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
       },
     });
     await provisionInstitution(prisma, inst.id, inst.plan_id);
-    
 
     logger.audit({
       user_id: (request as any).user?.sub,
@@ -102,7 +101,6 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
     throw error;
   }
 }
-
 
 export async function createInstitutionAdminHandler(request: FastifyRequest, reply: FastifyReply) {
   const logger = new Logger(request.log);
@@ -180,10 +178,7 @@ export async function createInstitutionAdminHandler(request: FastifyRequest, rep
   }
 }
 
-export async function updateInstitutionPutHandler(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function updateInstitutionPutHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
     //  Validate URL params
     const paramsParsed = InstitutionIdParamsSchema.safeParse(request.params);
@@ -247,7 +242,6 @@ export async function updateInstitutionPutHandler(
   }
 }
 
-
 interface InstitutionQuery {
   page?: string;
   limit?: string;
@@ -271,7 +265,6 @@ export async function getInstitutionsHandler(
       page = '1',
       limit = '10',
       search,
-
       name,
       code,
       contactEmail,
@@ -293,6 +286,9 @@ export async function getInstitutionsHandler(
       });
     }
 
+    /* ----------------------------------
+       Filters (UNCHANGED)
+    ---------------------------------- */
     const where: any = {};
 
     if (name) {
@@ -328,7 +324,10 @@ export async function getInstitutionsHandler(
       ];
     }
 
-    const [data, meta] = await prisma.institutions
+    /* ----------------------------------
+       1️⃣ Fetch institutions (NO count here)
+    ---------------------------------- */
+    const [institutions, meta] = await prisma.institutions
       .paginate({
         where,
         select: {
@@ -355,11 +354,56 @@ export async function getInstitutionsHandler(
         limit: limitNumber,
       });
 
+    /* ----------------------------------
+       2️⃣ Get CORRECT student counts
+       (DISTINCT users per institution)
+    ---------------------------------- */
+    const studentCounts = await prisma.users.groupBy({
+      by: ['institution_id'],
+      where: {
+        institution_id: {
+          in: institutions.map((i:any) => i.id),
+        },
+        user_roles: {
+          some: {
+            role: {
+              name: 'Student', // ✅ lowercase (case-sensitive)
+            },
+          },
+        },
+      },
+      _count: {
+        id: true, // ✅ DISTINCT users.id
+      },
+    });
+
+    /* ----------------------------------
+       3️⃣ Map counts by institution_id
+    ---------------------------------- */
+    const countMap = new Map<number, number>();
+    for (const row of studentCounts) {
+      if (row.institution_id !== null) {
+        countMap.set(row.institution_id, row._count.id);
+      }
+    }
+
+    /* ----------------------------------
+       4️⃣ Final response
+    ---------------------------------- */
     return reply.send({
-      data,
+      data: institutions.map((institution:any) => ({
+        id: institution.id,
+        name: institution.name,
+        code: institution.code,
+        contact_email: institution.contact_email,
+        status: institution.status,
+        created_at: institution.created_at,
+        plan: institution.plan,
+        studentCount: countMap.get(institution.id) ?? 0, // ✅ EXACT COUNT
+      })),
       meta: {
         ...meta,
-        currentPageCount: data.length,
+        currentPageCount: institutions.length,
       },
     });
   } catch (err) {
@@ -370,11 +414,7 @@ export async function getInstitutionsHandler(
   }
 }
 
-
-export async function getPlanModulesHandler(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function getPlanModulesHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
     const parsed = GetPlanModulesParamsSchema.safeParse(request.params);
 
@@ -427,7 +467,7 @@ export async function getPlanModulesHandler(
       planId: planModules[0].plan.id,
       planCode: planModules[0].plan.code,
       planName: planModules[0].plan.name,
-      modules: planModules.map((pm:any) => ({
+      modules: planModules.map((pm: any) => ({
         id: pm.module.id,
         code: pm.module.code,
         name: pm.module.name,
