@@ -476,16 +476,16 @@ export async function saveAcademicDetails(
     roll_number?: string;
   }
 ) {
+  // 1️⃣ Find existing academic record for this student in this institution
   const existing = await prisma.batch_students.findFirst({
     where: {
       student_id: input.student_id,
-      batch: { institution_id: input.institution_id },
+      batch: {
+        institution_id: input.institution_id,
+      },
     },
   });
 
-  if (existing) {
-    throw new ConflictError('Academic details already added for this student');
-  }
   // 2️⃣ Validate section belongs to batch (VERY IMPORTANT)
   if (input.section_id) {
     const section = await prisma.batch_sections.findFirst({
@@ -499,6 +499,31 @@ export async function saveAcademicDetails(
       throw new ConflictError('Invalid section for selected batch');
     }
   }
+
+  // 3️⃣ UPDATE if exists
+  if (existing) {
+    await prisma.batch_students.update({
+      where: {
+        batch_id_student_id: {
+          batch_id: existing.batch_id,
+          student_id: existing.student_id,
+        },
+      },
+      data: {
+        batch_id: input.batch_id,
+        section_id: input.section_id ?? null,
+        roll_number: input.roll_number,
+      },
+    });
+
+
+    return {
+      success: true,
+      message: 'Academic details updated successfully',
+    };
+  }
+
+  // 4️⃣ CREATE if not exists
   await prisma.batch_students.create({
     data: {
       student_id: input.student_id,
@@ -513,6 +538,7 @@ export async function saveAcademicDetails(
     message: 'Academic details saved successfully',
   };
 }
+
 
 export async function saveEnrollmentDetails(
   prisma: PrismaClient,

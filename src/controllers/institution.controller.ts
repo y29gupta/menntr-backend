@@ -59,25 +59,25 @@ export async function createInstitutionHandler(request: FastifyRequest, reply: F
 
     const { name, code, subdomain, contact_email, plan_id } = parsed.data;
     const prisma = request.prisma;
-    // const existing = await prisma.institution.findFirst({
-    //   where: {
-    //     OR: [{ code }, { subdomain: subdomain ?? undefined }],
-    //   },
-    // });
+    const existing = await prisma.institutions.findFirst({
+      where: {
+        OR: [{ code }, { subdomain: subdomain ?? undefined }],
+      },
+    });
 
-    // if (existing) {
-    //   if (existing.code === code) {
-    //     throw new ConflictError('Institution with this code already exists');
-    //   }
-    //   if (existing.subdomain === subdomain) {
-    //     throw new ConflictError('Institution with this subdomain already exists');
-    //   }
-    // }
+    if (existing) {
+      if (existing.code === code) {
+        throw new ConflictError('Institution with this code already exists');
+      }
+      if (existing.subdomain === subdomain) {
+        throw new ConflictError('Institution with this subdomain already exists');
+      }
+    }
     const inst = await prisma.institutions.create({
       data: {
         name,
         code,
-        // subdomain,
+        subdomain,
         contact_email,
         plan_id: plan_id ?? null,
         status: 'active',
@@ -555,3 +555,67 @@ export async function getPlanModulesHandler(
 //     return reply.code(500).send({ error: 'Internal server error' });
 //   }
 // }
+
+export async function getInstitutionByIdHandler(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    // 1️⃣ Validate params
+    const paramsParsed = InstitutionIdParamsSchema.safeParse(request.params);
+    if (!paramsParsed.success) {
+      return reply.code(400).send({
+        error: 'Invalid institution id',
+        details: paramsParsed.error,
+      });
+    }
+
+    const { id } = paramsParsed.data;
+    const prisma = request.prisma;
+
+    // 2️⃣ Fetch institution
+    const institution = await prisma.institutions.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        subdomain: true,
+        contact_email: true,
+        plan_id: true,
+        status: true,
+        created_at: true,
+        updated_at: true,
+        plan: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+      },
+    });
+
+    if (!institution) {
+      return reply.code(404).send({
+        error: 'Institution not found',
+      });
+    }
+
+    // 3️⃣ Send response (edit-form friendly)
+    return reply.code(200).send({
+      id: institution.id,
+      name: institution.name,
+      code: institution.code,
+      subdomain: institution.subdomain,
+      contact_email: institution.contact_email,
+      plan_id: institution.plan_id,
+      status: institution.status,
+      plan: institution.plan,
+      created_at: institution.created_at,
+      updated_at: institution.updated_at,
+    });
+  } catch (err) {
+    request.server.log.error({ err }, 'getInstitutionByIdHandler failed');
+    return reply.code(500).send({
+      error: 'Internal server error',
+    });
+  }
+}

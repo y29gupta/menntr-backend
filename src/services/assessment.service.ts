@@ -290,18 +290,21 @@ export async function listAssessments(
     limit?: number;
     search?: string;
     status?: string;
+    title?: string;
     category?: string;
+    batch?: string;
+    questions?: number;
   }
 ) {
-  const page = Number.isFinite(params.page) && params.page! > 0 ? params.page! : 1;
-  const limit = Number.isFinite(params.limit) && params.limit! > 0 ? params.limit! : 10;
+  const page = params.page && params.page > 0 ? params.page : 1;
+  const limit = params.limit && params.limit > 0 ? params.limit : 10;
   const skip = (page - 1) * limit;
 
   const now = new Date();
 
   const AND: any[] = [{ institution_id: params.institution_id }, { is_deleted: false }];
 
-  /* ---------------- TAB FILTER ---------------- */
+  /* ---------------- TAB ---------------- */
   if (params.tab === 'active') {
     AND.push({ status: { in: ['published', 'active'] } });
     AND.push({ OR: [{ end_time: null }, { end_time: { gt: now } }] });
@@ -317,24 +320,45 @@ export async function listAssessments(
     });
   }
 
-  /* ---------------- COLUMN FILTERS ---------------- */
   if (params.status) {
     AND.push({ status: params.status });
   }
 
-  if (params.category) {
+  /* ---------------- COLUMN FILTERS ---------------- */
+  if (params.title) {
     AND.push({
-      metadata: {
-        path: ['category'],
-        equals: params.category,
-      },
+      title: { contains: params.title, mode: 'insensitive' },
     });
   }
 
-  /* ---------------- GLOBAL SEARCH ---------------- */
+  if (params.category) {
+    AND.push({
+      metadata: { path: ['category'], equals: params.category },
+    });
+  }
+
+  if (params.batch) {
+    AND.push({
+      batches: {
+        some: {
+          batch: {
+            name: { contains: params.batch, mode: 'insensitive' },
+          },
+        },
+      },
+    });
+  }
+  if (Number.isInteger(params.questions)) {
+    AND.push({
+      questions: {
+        _count: {
+          equals: Number(params.questions),
+        },
+      },
+    });
+  }
   if (params.search) {
     const q = params.search.trim();
-
     AND.push({
       OR: [
         { title: { contains: q, mode: 'insensitive' } },
@@ -359,8 +383,17 @@ export async function listAssessments(
     });
   }
 
+  /* =====================================================
+     ✅ QUESTIONS COUNT FILTER (FIXED)
+     ===================================================== */
+  /* =====================================================
+   ✅ QUESTIONS COUNT FILTER (PRISMA SAFE)
+   ===================================================== */
+  const questionsCount = params.questions !== undefined ? Number(params.questions) : undefined;
+
   const where = { AND };
 
+  /* ---------------- QUERY ---------------- */
   const [rows, total] = await Promise.all([
     prisma.assessments.findMany({
       where,
@@ -370,12 +403,13 @@ export async function listAssessments(
       include: {
         questions: true,
         batches: { include: { batch: true } },
+        _count: { select: { questions: true } },
       },
     }),
     prisma.assessments.count({ where }),
   ]);
 
-  return buildPaginatedResponse(rows, total, page, limit)
+  return buildPaginatedResponse(rows, total, page, limit);
 }
 
 
