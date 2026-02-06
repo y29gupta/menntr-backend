@@ -1,5 +1,6 @@
 // services/proctoring-insights.service.ts
 import { PrismaClient } from '@prisma/client';
+import { BlobServiceClient, BlobSASPermissions } from '@azure/storage-blob';
 
 export async function generateProctoringInsights(
   prisma: PrismaClient,
@@ -51,4 +52,23 @@ export async function generateProctoringInsights(
   });
 
   return { status: 'PROCESSING' };
+}
+
+
+
+export async function getReadSasUrl(blobPath: string) {
+  const client = BlobServiceClient.fromConnectionString(
+    process.env.AZURE_STORAGE_CONNECTION_STRING!
+  );
+
+  const container = client.getContainerClient('proctoring');
+  const blob = container.getBlobClient(blobPath);
+
+  const permissions = new BlobSASPermissions();
+  permissions.read = true;
+
+  return blob.generateSasUrl({
+    permissions,
+    expiresOn: new Date(Date.now() + 10 * 60 * 1000), // 10 min
+  });
 }

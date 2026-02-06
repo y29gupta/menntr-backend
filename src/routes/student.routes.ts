@@ -16,6 +16,7 @@ import {
   deleteStudentHandler,
   getStudentHandler,
   updateStudentHandler,
+  bulkUploadStudentsHandler,
 } from '../controllers/student.controller';
 
 export async function studentRoutes(app: any) {
@@ -56,4 +57,11 @@ export async function studentRoutes(app: any) {
   app.get('/students/:id', { preHandler: [authGuard] }, getStudentHandler);
   
   app.put('/students/:id', { preHandler: [authGuard] }, updateStudentHandler);
+
+  app.post(
+  '/students/bulk-upload',
+  {
+    preHandler: [authGuard],
+  },
+  bulkUploadStudentsHandler)
 }

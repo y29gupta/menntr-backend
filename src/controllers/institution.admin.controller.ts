@@ -872,28 +872,37 @@ export async function listUsers(request: FastifyRequest, reply: FastifyReply) {
     }
 
     if (status) {
-      // enum filter (safe)
       where.status = status;
     }
 
-    if (role || department) {
+    // Role filter
+    if (role) {
       where.user_roles = {
         some: {
           role: {
             is_system_role: false,
-            ...(role && {
-              name: { contains: role, mode: 'insensitive' },
-            }),
-            ...(department && {
-              role_hierarchy_id: 3,
-              name: { contains: department, mode: 'insensitive' },
-            }),
+            name: { contains: role, mode: 'insensitive' },
           },
         },
       };
     }
 
-    /* ---------------- GLOBAL SEARCH (NO STATUS) ---------------- */
+    // Department filter (from role name)
+    if (department) {
+      where.user_roles = {
+        some: {
+          role: {
+            is_system_role: false,
+            name: {
+              contains: `- ${department}`,
+              mode: 'insensitive',
+            },
+          },
+        },
+      };
+    }
+
+    /* ---------------- GLOBAL SEARCH ---------------- */
 
     const orConditions: any[] = [];
 
@@ -913,24 +922,12 @@ export async function listUsers(request: FastifyRequest, reply: FastifyReply) {
         // Email
         { email: { contains: search, mode: 'insensitive' } },
 
-        // Role
+        // Role OR Department (same field in your model)
         {
           user_roles: {
             some: {
               role: {
                 is_system_role: false,
-                name: { contains: search, mode: 'insensitive' },
-              },
-            },
-          },
-        },
-
-        // Department
-        {
-          user_roles: {
-            some: {
-              role: {
-                role_hierarchy_id: 3,
                 name: { contains: search, mode: 'insensitive' },
               },
             },
@@ -945,53 +942,65 @@ export async function listUsers(request: FastifyRequest, reply: FastifyReply) {
 
     /* ---------------- PAGINATED QUERY ---------------- */
 
-    const [rows, meta] = await prisma.users
-      .paginate({
-        where,
+const [rows, meta] = await prisma.users
+  .paginate({
+    where,
+    select: {
+      id: true,
+      first_name: true,
+      last_name: true,
+      email: true,
+      status: true,
+      last_login_at: true,
+      user_roles: {
+        where: {
+          role: { is_system_role: false },
+        },
         select: {
-          id: true,
-          first_name: true,
-          last_name: true,
-          email: true,
-          status: true,
-          last_login_at: true,
-          user_roles: {
-            where: {
-              role: { is_system_role: false },
-            },
-            take: 1,
+          role: {
             select: {
-              role: {
+              name: true,
+              role_hierarchy_id: true,
+              hierarchy: {
                 select: {
-                  name: true,
-                  role_hierarchy_id: true,
+                  level: true,
                 },
               },
             },
           },
         },
-        orderBy: { created_at: 'desc' },
-      })
-      .withPages({
-        page: pageNumber,
-        limit: limitNumber,
-      });
+      },
+    },
+    orderBy: { created_at: 'desc' },
+  })
+  .withPages({
+    page: pageNumber,
+    limit: limitNumber,
+  });
+
 
     /* ---------------- RESPONSE MAPPING ---------------- */
 
-    const data = rows.map((u: any) => {
-      const role = u.user_roles[0]?.role ?? null;
+const data = rows.map((u: any) => {
+  const roles = u.user_roles.map((ur: any) => ur.role);
 
-      return {
-        id: u.id.toString(),
-        name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
-        email: u.email,
-        role: role?.name ?? null,
-        department: role?.role_hierarchy_id === 3 ? role.name : null,
-        status: u.status,
-        lastLoginAt: u.last_login_at,
-      };
-    });
+  // Department role = hierarchy level 3 (as per your schema)
+  const departmentRole = roles.find((r: any) => r.hierarchy?.level === 3) ?? null;
+
+  // Primary role = first role that is NOT department
+  const primaryRole = roles.find((r: any) => r.hierarchy?.level !== 3) ?? null;
+
+  return {
+    id: u.id.toString(),
+    name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
+    email: u.email,
+    role: primaryRole?.name ?? null,
+    department: departmentRole?.name ?? null,
+    status: u.status,
+    lastLoginAt: u.last_login_at,
+  };
+});
+
 
     /* ---------------- FINAL RESPONSE ---------------- */
 
@@ -1009,6 +1018,8 @@ export async function listUsers(request: FastifyRequest, reply: FastifyReply) {
     });
   }
 }
+
+
 
 export async function bulkCreateUsersFromExcel(request: FastifyRequest, reply: FastifyReply) {
   try {

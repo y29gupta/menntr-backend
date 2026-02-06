@@ -35,27 +35,27 @@ export async function listUsers(
     status
   );
 
-  const data = rows.map((u: any) => {
+const data = rows.map((u: any) => {
     // pick primary role (non-system)
     const roleEntry = u.user_roles.find(
       (ur: any) => !ur.role.is_system_role
     );
 
-    const role = roleEntry?.role ?? null;
+  const role = roleEntry?.role ?? null;
 
     const department =
       role?.role_hierarchy_id === 3 ? role.name : null;
 
-    return {
-      id: u.id.toString(),
-      name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
-      email: u.email,
-      role: role?.name ?? null,
-      department,
-      status: u.status,
-      last_login_at: u.last_login_at,
-    };
-  });
+  return {
+    id: u.id.toString(),
+    name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
+    email: u.email,
+    role: role?.name ?? null,
+    department,
+    status: u.status,
+    last_login_at: u.last_login_at,
+  };
+});
 
   reply.send({
     total,

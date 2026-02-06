@@ -936,3 +936,125 @@ export async function updateStudent(
     emailChanged,
   };
 }
+
+
+export async function bulkCreateStudents(
+  prisma: PrismaClient,
+  input: {
+    institution_id: number;
+    created_by: bigint;
+    rows: any[];
+  }
+) {
+  const results: any[] = [];
+  let success = 0;
+  let failed = 0;
+
+  const studentRole = await prisma.roles.findFirst({
+    where: { institution_id: input.institution_id, name: 'Student' },
+  });
+
+  if (!studentRole) throw new Error('Student role not configured');
+
+  for (let i = 0; i < input.rows.length; i++) {
+    const row = input.rows[i];
+
+    try {
+      const required = ['first_name', 'email', 'department', 'academic_year', 'batch_name'];
+      for (const f of required) {
+        if (!row[f]) throw new Error(`Missing ${f}`);
+      }
+
+      // 1️⃣ Resolve department role
+      const departmentRole = await prisma.roles.findFirst({
+        where: {
+          institution_id: input.institution_id,
+          name: { equals: row.department, mode: 'insensitive' },
+        },
+      });
+
+      if (!departmentRole) {
+        throw new Error(`Department not found: ${row.department}`);
+      }
+
+      // 2️⃣ Resolve batch
+      const batch = await prisma.batches.findFirst({
+        where: {
+          institution_id: input.institution_id,
+          academic_year: Number(row.academic_year),
+          name: row.batch_name,
+          department_role_id: departmentRole.id,
+        },
+      });
+
+      if (!batch) {
+        throw new Error(
+          `Batch not found (${row.department}, ${row.academic_year}, ${row.batch_name})`
+        );
+      }
+
+      // 3️⃣ Duplicate check
+      const exists = await prisma.users.findFirst({
+        where: {
+          email: row.email,
+          institution_id: input.institution_id,
+        },
+      });
+
+      if (exists) throw new Error('Duplicate email');
+
+      // 4️⃣ Transaction create
+      await prisma.$transaction(async (tx) => {
+        const user = await tx.users.create({
+          data: {
+            email: row.email,
+            first_name: row.first_name,
+            last_name: row.last_name ?? null,
+            phone: row.phone ?? null,
+            gender: row.gender ?? null,
+            institution_id: input.institution_id,
+            status: 'active',
+            must_change_password: true,
+          },
+        });
+
+        await tx.user_roles.create({
+          data: {
+            user_id: user.id,
+            role_id: studentRole.id,
+            assigned_by: input.created_by,
+          },
+        });
+
+        await tx.batch_students.create({
+          data: {
+            student_id: user.id,
+            batch_id: batch.id,
+            roll_number: row.roll_number ?? null,
+          },
+        });
+      });
+
+      success++;
+      results.push({ row: i + 1, email: row.email, status: 'success' });
+    } catch (err: any) {
+      failed++;
+      results.push({
+        row: i + 1,
+        email: row.email ?? '-',
+        status: 'failed',
+        reason: err.message,
+      });
+    }
+  }
+
+  return {
+    summary: {
+      total: input.rows.length,
+      success,
+      failed,
+    },
+    results,
+  };
+}
+

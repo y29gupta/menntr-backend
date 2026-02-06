@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import * as service from '../services/student.service';
 import { triggerStudentInvite } from '../services/student-invite.helper';
 import { EmailService } from '../services/email';
+import { parse } from 'csv-parse/sync';
 import { success } from 'zod';
 /* -----------------------------
    TYPES
@@ -243,7 +244,7 @@ export async function saveAdditionalInfoHandler(
     ...req.body,
   });
 
-  if(result?.student?.email) {
+  if (result?.student?.email) {
     try {
       const emailService = new EmailService(req.server.mailer);
 
@@ -253,7 +254,7 @@ export async function saveAdditionalInfoHandler(
         firstName: result.student.first_name,
         lastName: result.student.last_name,
         inviterName: 'Institution Admin',
-      })
+      });
     } catch (err) {
       req.log.error(err, 'Student invite email failed');
     }
@@ -261,7 +262,7 @@ export async function saveAdditionalInfoHandler(
 
   reply.send({
     success: true,
-    message: 'Additional information saved & invite sent'
+    message: 'Additional information saved & invite sent',
   });
 
   // reply.send(result);
@@ -295,8 +296,6 @@ export async function getStudentHandler(
 
   reply.send(data);
 }
-
-
 
 export async function updateStudentHandler(
   req: FastifyRequest<{
@@ -341,4 +340,41 @@ export async function updateStudentHandler(
     success: true,
     message: result.emailChanged ? 'Student updated & invite sent' : 'Student updated successfully',
   });
+}
+
+export async function bulkUploadStudentsHandler(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  // 🔥 read uploaded file
+  const file = await req.file();
+
+  if (!file) {
+    return reply.status(400).send({ message: 'CSV file required' });
+  }
+
+  const buffer = await file.toBuffer();
+
+  let records: any[];
+
+  try {
+    records = parse(buffer.toString(), {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    });
+  } catch {
+    return reply.status(400).send({ message: 'Invalid CSV format' });
+  }
+
+  const result = await service.bulkCreateStudents(req.prisma, {
+    institution_id: user.institution_id,
+    created_by: BigInt(user.sub),
+    rows: records,
+  });
+
+  reply.send(result);
+
 }

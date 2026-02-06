@@ -37,31 +37,31 @@ export async function getUsersForManagement(
     ];
   }
 
-  const [rows, total] = await Promise.all([
-    prisma.users.findMany({
-      where,
-      skip,
-      take,
-      include: {
-        user_roles: {
+const [rows, total] = await Promise.all([
+  prisma.users.findMany({
+    where,
+    skip,
+    take,
+    include: {
+      user_roles: {
           where: {
             role: { is_system_role: false },
           },
-          include: {
-            role: {
-              select: {
-                id: true,
-                name: true,
-                role_hierarchy_id: true,
-              },
+        include: {
+          role: {
+            select: {
+              id: true,
+              name: true,
+              role_hierarchy_id: true,
             },
           },
         },
       },
-      orderBy: { created_at: 'desc' },
-    }),
-    prisma.users.count({ where }),
-  ]);
+    },
+    orderBy: { created_at: 'desc' },
+  }),
+  prisma.users.count({ where }),
+]);
 
   return { rows, total };
 }
