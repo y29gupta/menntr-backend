@@ -23,6 +23,19 @@ export default fp(async function authPlugin(fastify: FastifyInstance) {
       sub: payload.sub,
       email: payload.email,
       roles: Array.isArray(payload.roles) ? payload.roles : [],
+      institution_id: payload.institution_id,
     };
   });
 });
+
+export function requirePermission(permissionCode: string) {
+  return async (request: any, reply: any) => {
+    const user = request.user;
+
+    if (!user?.permissions?.includes(permissionCode)) {
+      return reply.code(403).send({
+        message: 'Permission denied',
+      });
+    }
+  };
+}

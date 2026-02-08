@@ -1,0 +1,210 @@
+import { FastifyRequest, FastifyReply } from 'fastify';
+import {
+  CreateDepartmentSchema,
+  UpdateDepartmentSchema,
+} from '../schemas/department.zod';
+import {
+  getDepartments,
+  createDepartment,
+  updateDepartment,
+  getDepartmentMeta,
+  deleteDepartment as deleteDepartmentService,
+} from '../services/department.service';
+import { Serializer } from '../utils/serializers';
+import { ValidationError, ForbiddenError } from '../utils/errors';
+
+export async function listDepartments(request: FastifyRequest, reply: FastifyReply) {
+  const prisma = request.prisma;
+  const user_id = BigInt((request as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const { page = 1, limit = 10, search = '' } = request.query as any;
+
+  const result = await getDepartments(prisma, {
+    institution_id: user.institution_id,
+    page: Number(page),
+    limit: Number(limit),
+    search,
+  });
+
+  const data = result.data.map((r: any) => ({
+    id: r.id,
+    name: r.name,
+    code: r.code,
+    category: r.parent ? { id: r.parent.id, name: r.parent.name } : null,
+    // Return all users assigned to this department (from user_roles table)
+    assignedUsers: r.user_roles.map((ur: any) => ({
+      id: Serializer.bigIntToString(ur.user.id),
+      name: `${ur.user.first_name ?? ''} ${ur.user.last_name ?? ''}`.trim(),
+      email: ur.user.email,
+    })),
+    // For backward compatibility, keep hod as first user or null
+    hod: r.user_roles.length
+      ? {
+          id: Serializer.bigIntToString(r.user_roles[0].user.id),
+          name: `${r.user_roles[0].user.first_name ?? ''} ${
+            r.user_roles[0].user.last_name ?? ''
+          }`.trim(),
+          email: r.user_roles[0].user.email,
+        }
+      : null,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }));
+
+  reply.send({
+    total: result.meta.totalCount, // Total count of all departments
+    page: result.meta.currentPage,
+    limit: result.meta.pageSize,
+    ...result.meta, // Include all other meta fields
+    data,
+  });
+}
+
+
+export async function addDepartment(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const parsed = CreateDepartmentSchema.safeParse(request.body);
+  if (!parsed.success) {
+    throw new ValidationError('Invalid request', parsed.error.issues);
+  }
+
+  const prisma = request.prisma;
+  const user_id = BigInt((request as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const department = await createDepartment(
+    prisma,
+    user.institution_id,
+    parsed.data
+  );
+
+  reply.code(201).send(department);
+}
+
+export async function editDepartment(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const parsed = UpdateDepartmentSchema.safeParse(request.body);
+  if (!parsed.success) {
+    throw new ValidationError('Invalid request', parsed.error.issues);
+  }
+
+  const prisma = request.prisma;
+  const department_id = Number((request.params as any).id);
+  const user_id = BigInt((request as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const updated = await updateDepartment(
+    prisma,
+    department_id,
+    user.institution_id,
+    parsed.data
+  );
+
+  reply.send(updated);
+}
+
+export async function departmentMeta(
+  req: FastifyRequest,
+  reply: FastifyReply
+) {
+  const prisma = req.prisma;
+  const authUser = (req as any).user;
+
+  if (!authUser?.sub) {
+    throw new ForbiddenError('Unauthorized');
+  }
+
+  const user_id = BigInt(authUser.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: {
+      institution_id: true,
+      user_roles: { include: { role: true } },
+    },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  // 🔐 Only admins can assign HOD
+  const allowed = user.user_roles.some((r: any) =>
+    ['Institution Admin', 'Category Admin'].includes(r.role.name)
+  );
+
+  if (!allowed) {
+    throw new ForbiddenError('Insufficient permissions');
+  }
+
+  const meta = await getDepartmentMeta(prisma, user.institution_id);
+  reply.send(meta);
+}
+
+
+export async function deleteDepartment(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const prisma = request.prisma;
+  const department_id = Number((request.params as any).id);
+  const user_id = BigInt((request as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: {
+      institution_id: true,
+      user_roles: { include: { role: true } },
+    },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  // 🔐 Only admins can delete
+  const allowed = user.user_roles.some((r: any) =>
+    ['Institution Admin', 'Category Admin'].includes(r.role.name)
+  );
+
+  if (!allowed) {
+    throw new ForbiddenError('Insufficient permissions');
+  }
+
+  await deleteDepartmentService(
+    prisma,
+    department_id,
+    user.institution_id
+  );
+
+  reply.send({ message: 'Department deleted successfully' });
+}

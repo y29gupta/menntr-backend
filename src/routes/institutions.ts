@@ -1,8 +1,8 @@
-// src/routes/institutions.ts
 import { FastifyInstance } from 'fastify';
 import {
   createInstitutionAdminHandler,
   createInstitutionHandler,
+  getInstitutionByIdHandler,
   getInstitutionsHandler,
   getPlanModulesHandler,
   // getPlanModulesHandler,
@@ -17,5 +17,6 @@ export default async function institutionRoutes(fastify: FastifyInstance) {
 export async function planRoutes(fastify: FastifyInstance) {
   fastify.get('/plans/:planId/modules', getPlanModulesHandler);
   fastify.get('/institutions', getInstitutionsHandler);
+  fastify.get('/super-admin/institutions/:id', getInstitutionByIdHandler);
   fastify.put('/institutions/:id', updateInstitutionPutHandler);
 }

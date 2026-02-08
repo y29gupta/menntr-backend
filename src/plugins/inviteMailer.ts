@@ -22,5 +22,5 @@ export default fp(async (fastify) => {
 
   // await transporter.verify();
 
-  fastify.decorate('inviteMailer', transporter);
+  // fastify.decorate('inviteMailer', transporter);
 });

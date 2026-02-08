@@ -81,4 +81,11 @@ export class AuthService {
 
     return parts[1];
   }
+
+  static hashForLog(input: string): string {
+    if (!input) return 'unknown';
+
+    // Short, non-reversible, consistent hash for logs
+    return crypto.createHash('sha256').update(input).digest('hex').slice(0, 12); // keep logs readable
+  }
 }

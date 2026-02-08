@@ -7,13 +7,13 @@ export class Serializer {
     return {
       id: this.bigIntToString(user.id),
       email: user.email,
-      firstName: user.firstName ?? null,
-      lastName: user.lastName ?? null,
-      institutionId: user.institutionId ?? null,
+      first_name: user.first_name ?? null,
+      last_name: user.last_name ?? null,
+      institution_id: user.institution_id ?? null,
       status: user.status ?? null,
-      createdAt: user.createdAt?.toISOString?.() ?? user.createdAt,
-      updatedAt: user.updatedAt?.toISOString?.() ?? user.updatedAt,
-      lastLoginAt: user.lastLoginAt?.toISOString?.() ?? user.lastLoginAt,
+      created_at: user.created_at?.toISOString?.() ?? user.created_at,
+      updated_at: user.updated_at?.toISOString?.() ?? user.updated_at,
+      last_login_at: user.last_login_at?.toISOString?.() ?? user.last_login_at,
     };
   }
 
@@ -31,25 +31,57 @@ export class Serializer {
     };
   }
 
+  // static authResponse(status: boolean, user: any, mustChangePassword = false) {
+  //   return {
+  //     // token,
+  //     status: status,
+  //     must_change_password: mustChangePassword,
+  //     user: {
+  //       id: this.bigIntToString(user.id),
+  //       email: user.email,
+  //       institution_id: user.institution_id,
+  //       roles: user.roles,
+  //     },
+  //   };
+  // }
+
   static authResponse(status: boolean, user: any, mustChangePassword = false) {
     return {
-      // token,
-      status: status,
-      mustChangePassword,
+      status,
+      must_change_password: mustChangePassword,
       user: {
         id: this.bigIntToString(user.id),
         email: user.email,
+        institution_id: user.institution_id ?? null,
+        roles: user.roles,
+        permissions: user.permissions,
+        modules: user.modules,
       },
     };
   }
-  static serializeRoles(user: any) {
-    if (!user?.roles) return [];
 
-    return user.roles.map((ur: any) => ({
+  // static serializeRoles(user: any) {
+  //   if (!user?.user_roles) return [];
+
+  //   return user.user_roles.map((ur: any) => ({
+  //     id: ur.role.id,
+  //     name: ur.role.name,
+  //     institution_id: ur.role.institution_id ?? null,
+  //     is_system_role: ur.role.is_system_role,
+  //   }));
+  // }
+
+  static serializeRoles(user: any) {
+    if (!user?.user_roles) return [];
+
+    return user.user_roles.map((ur: any) => ({
       id: ur.role.id,
       name: ur.role.name,
-      institutionId: ur.role.institutionId ?? null,
-      isSystemRole: ur.role.isSystemRole,
+      institution_id: ur.role.institution_id ?? null,
+      is_system_role: ur.role.is_system_role,
+      role_hierarchy_id: ur.role.role_hierarchy_id ?? null,
+      hierarchy_level: ur.role.hierarchy?.level ?? null,
+      hierarchy_name: ur.role.hierarchy?.name ?? null,
     }));
   }
 }
