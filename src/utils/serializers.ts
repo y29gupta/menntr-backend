@@ -79,6 +79,9 @@ export class Serializer {
       name: ur.role.name,
       institution_id: ur.role.institution_id ?? null,
       is_system_role: ur.role.is_system_role,
+      role_hierarchy_id: ur.role.role_hierarchy_id ?? null,
+      hierarchy_level: ur.role.hierarchy?.level ?? null,
+      hierarchy_name: ur.role.hierarchy?.name ?? null,
     }));
   }
 }

@@ -24,7 +24,7 @@ export async function institutionAdminRoutes(app: any) {
   );
   app.get('/institutionsadmin/modules', { preHandler: [authGuard] }, getModulesHandler);
   app.get(
-    '/institutionsadmin/modules/features/:moduleId',
+    '/institutionsadmin/modules/features/:moduleCode',
     { preHandler: [authGuard] },
     getModuleFeaturesHandler
   );

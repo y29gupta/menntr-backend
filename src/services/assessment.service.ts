@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { parse } from 'csv-parse/sync';
 import { ConflictError } from '../utils/errors';
-import { PrismaClient, AssessmentStatus, QuestionDifficulty, QuestionType } from '@prisma/client';
+import { Prisma, PrismaClient, AssessmentStatus, QuestionDifficulty, QuestionType } from '@prisma/client';
 import { timeAgo } from '../utils/time';
 import { capitalize, formatQuestionType } from '../utils/assessments/formatQuestionType';
 import { findOrCreateQuestion } from './question.service';
@@ -54,26 +54,21 @@ export async function createAssessment(
     assessment_type: string;
   }
 ) {
+  // Use unchecked create so optional feature_id can be omitted (schema: feature_id Int?)
   return prisma.assessments.create({
     data: {
+      institution_id: data.institution_id,
+      created_by: data.created_by,
       title: data.title,
       description: data.description,
       duration_minutes: data.duration_minutes,
       tags: data.tags ?? [],
       status: AssessmentStatus.draft,
-
       metadata: {
         category: data.category,
         assessment_type: data.assessment_type,
       },
-
-      institution: {
-        connect: { id: data.institution_id },
-      },
-      creator: {
-        connect: { id: data.created_by },
-      },
-    },
+    } as Prisma.assessmentsUncheckedCreateInput,
   });
 }
 

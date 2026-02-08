@@ -187,9 +187,15 @@ export async function getModulesHandler(request: FastifyRequest, reply: FastifyR
     -------------------------------------------------- */
     return reply.send({
       data: planModules.map((pm: any) => ({
-        ...pm.module,
-        isCore: pm.module.is_core, // ✅ ADDED (team lead parity)
-        planCode: institution.plan?.code, // ✅ ADDED (extra context)
+        code: pm.module.code,
+        name: pm.module.name,
+        description: pm.module.description,
+        icon: pm.module.icon,
+        category: pm.module.category,
+        isCore: pm.module.is_core,
+        is_system_module: pm.module.is_system_module,
+        sort_order: pm.module.sort_order,
+        planCode: institution.plan?.code,
       })),
     });
   } catch (error) {
@@ -203,7 +209,7 @@ export async function getModulesHandler(request: FastifyRequest, reply: FastifyR
 export async function getModuleFeaturesHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
     const prisma = request.server.prisma;
-    const { moduleId } = request.params as any;
+    const { moduleCode } = request.params as any;
 
     const currentUser: any = request.user;
 
@@ -251,7 +257,7 @@ export async function getModuleFeaturesHandler(request: FastifyRequest, reply: F
     -------------------------------------------------- */
     const features = await prisma.features.findMany({
       where: {
-        module_id: Number(moduleId),
+        module: { code: moduleCode },
         code: {
           in: allowedFeatureCodes,
         },
@@ -273,12 +279,10 @@ export async function getModuleFeaturesHandler(request: FastifyRequest, reply: F
        4️⃣ Map response (ADD moduleCode)
     -------------------------------------------------- */
     const response = features.map((f: any) => ({
-      id: f.id,
       code: f.code,
       name: f.name,
       description: f.description,
-      moduleId: f.module_id,
-      moduleCode: f.module?.code ?? null, // ✅ ADDED
+      moduleCode: f.module?.code ?? null,
     }));
 
     return reply.send({ data: response });
@@ -364,7 +368,6 @@ export async function getFeaturePermissionsHandler(request: FastifyRequest, repl
     });
 
     const allPermissions = permissions.map((p: any) => ({
-      id: p.id,
       code: p.permission_code,
       name: p.permission_name,
       description: p.description,
@@ -375,8 +378,14 @@ export async function getFeaturePermissionsHandler(request: FastifyRequest, repl
     /* --------------------------------------------------
        4️⃣ Role-based default permissions (optional)
     -------------------------------------------------- */
-    let defaultSelectedPermissions: number[] = [];
+    let defaultSelectedPermissions: string[] = [];
     let roleInfo: any = null;
+
+    // Build id → code map for converting role_permission IDs to codes
+    const idToCode = new Map<number, string>();
+    permissions.forEach((p: any) => {
+      idToCode.set(p.id, p.permission_code);
+    });
 
     if (roleId) {
       const role = await prisma.roles.findFirst({
@@ -385,7 +394,7 @@ export async function getFeaturePermissionsHandler(request: FastifyRequest, repl
           institution_id: institutionId,
         },
         include: {
-          hierarchy: true, // ✅ CORRECT RELATION
+          hierarchy: true,
         },
       });
 
@@ -409,7 +418,9 @@ export async function getFeaturePermissionsHandler(request: FastifyRequest, repl
           },
         });
 
-        defaultSelectedPermissions = rolePermissions.map((rp: any) => rp.permission_id);
+        defaultSelectedPermissions = rolePermissions
+          .map((rp: any) => idToCode.get(rp.permission_id))
+          .filter((code: string | undefined): code is string => !!code);
       }
     }
 
@@ -561,17 +572,37 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
     const planCode = institution.plan.code;
 
     /* --------------------------------------------------
-     * 2️⃣ Validate permissions against plan
+     * 2️⃣ Resolve permission codes → IDs
+     * -------------------------------------------------- */
+    const permissionCodes: string[] = payload.permissionCodes || [];
+    const resolvedPermissions = await prisma.permissions.findMany({
+      where: { permission_code: { in: permissionCodes } },
+      select: { id: true, permission_code: true },
+    });
+
+    const resolvedPermissionIds = resolvedPermissions.map((p: any) => p.id);
+
+    // Check for invalid codes
+    const resolvedCodes = new Set(resolvedPermissions.map((p: any) => p.permission_code));
+    const invalidCodes = permissionCodes.filter((code: string) => !resolvedCodes.has(code));
+    if (invalidCodes.length > 0) {
+      return reply.code(400).send({
+        error: `Unknown permission codes: ${invalidCodes.join(', ')}`,
+      });
+    }
+
+    /* --------------------------------------------------
+     * 2.5 Validate permissions against plan
      * -------------------------------------------------- */
     const availablePermissions = await getAvailablePermissionsForPlan(planCode);
 
-    const invalidPermissions = payload.permissionIds.filter(
+    const invalidPermissions = resolvedPermissionIds.filter(
       (pid: number) => !availablePermissions.includes(pid)
     );
 
     if (invalidPermissions.length > 0) {
       return reply.code(400).send({
-        error: `These permissions are not available in your plan: ${invalidPermissions.join(', ')}`,
+        error: `Some permissions are not available in your plan`,
       });
     }
 
@@ -630,19 +661,19 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
     /* --------------------------------------------------
      * 5️⃣ Permission diff logic
      * -------------------------------------------------- */
-    const permissionsToGrant = payload.permissionIds.filter(
+    const permissionsToGrant = resolvedPermissionIds.filter(
       (pid: number) => !rolePermissions.includes(pid)
     );
 
     const permissionsToRevoke = rolePermissions.filter(
-      (pid: number) => !payload.permissionIds.includes(pid)
+      (pid: number) => !resolvedPermissionIds.includes(pid)
     );
 
     /* --------------------------------------------------
      * 6️⃣ Fetch modules + features summary
      * -------------------------------------------------- */
     const permissionDetails = await prisma.permissions.findMany({
-      where: { id: { in: payload.permissionIds } },
+      where: { id: { in: resolvedPermissionIds } },
       include: {
         feature: { include: { module: true } },
       },
@@ -789,7 +820,7 @@ export async function createUserFlexible(request: FastifyRequest, reply: Fastify
         email: result.email,
         roleId: payload.roleId || null,
         roleName: role?.name || null,
-        assignedPermissions: payload.permissionIds.length,
+        assignedPermissions: resolvedPermissionIds.length,
         assignedModules: Array.from(moduleSet),
         assignedFeatures: Array.from(featureSet),
       },
@@ -1114,17 +1145,30 @@ export async function bulkCreateUsersFromExcel(request: FastifyRequest, reply: F
           throw new Error('email, firstName, lastName are required');
         }
 
-        const permissionIds = String(row.permissionIds)
+        const permissionCodes = String(row.permissionCodes || '')
           .split(',')
-          .map((x: string) => Number(x.trim()))
+          .map((x: string) => x.trim())
           .filter(Boolean);
 
-        const invalidPermissions = permissionIds.filter(
-          (pid) => !allowedPermissionIds.includes(pid)
+        // Resolve codes → IDs
+        const resolvedPerms = await prisma.permissions.findMany({
+          where: { permission_code: { in: permissionCodes } },
+          select: { id: true, permission_code: true },
+        });
+        const resolvedIds = resolvedPerms.map((p: any) => p.id);
+
+        const resolvedCodeSet = new Set(resolvedPerms.map((p: any) => p.permission_code));
+        const unknownCodes = permissionCodes.filter((c) => !resolvedCodeSet.has(c));
+        if (unknownCodes.length > 0) {
+          throw new Error(`Unknown permission codes: ${unknownCodes.join(', ')}`);
+        }
+
+        const invalidPermissions = resolvedIds.filter(
+          (pid: number) => !allowedPermissionIds.includes(pid)
         );
 
         if (invalidPermissions.length > 0) {
-          throw new Error(`Invalid permissions: ${invalidPermissions.join(', ')}`);
+          throw new Error(`Some permissions are not available in your plan`);
         }
 
         // ------------------------------
@@ -1296,35 +1340,46 @@ export async function getUserForEdit(
       return reply.code(404).send({ error: 'User not found' });
     }
 
-    /* 2️⃣ Fetch role + hierarchy */
-    const userRole = await prisma.user_roles.findFirst({
-      where: { user_id: userId },
+    /* 2️⃣ Fetch all user roles for this institution (same scope as resolveAccessContext) */
+    const userRoles = await prisma.user_roles.findMany({
+      where: {
+        user_id: userId,
+        role: { institution_id: institutionId },
+      },
       include: {
         role: {
           include: { hierarchy: true },
         },
       },
     });
+    const userRole = userRoles[0] ?? null; // primary role for UI (dropdown)
 
-    /* 3️⃣ Fetch role permissions */
+    /* 3️⃣ Fetch role permissions from all roles (aligned with RBAC resolver) */
+    const roleIds = userRoles.map((ur: { role: { id: number } }) => ur.role.id);
     let rolePermissionIds: number[] = [];
-    if (userRole?.role) {
+    if (roleIds.length > 0) {
       const rolePerms = await prisma.role_permissions.findMany({
-        where: { role_id: userRole.role.id },
+        where: { role_id: { in: roleIds } },
         select: { permission_id: true },
       });
-      rolePermissionIds = rolePerms.map((rp: any) => rp.permission_id);
+      rolePermissionIds = Array.from(
+        new Set(rolePerms.map((rp: { permission_id: number }) => rp.permission_id))
+      );
     }
 
-    /* 4️⃣ Fetch user overrides */
+    /* 4️⃣ Fetch user overrides (aligned with permission.resolver: active grants, all revokes) */
     const overrides = await prisma.user_permission_overrides.findMany({
       where: { user_id: userId },
     });
-
+    const now = new Date();
     const granted = overrides
-      .filter((o: any) => o.override_type === 'grant')
+      .filter(
+        (o: any) =>
+          o.override_type === 'grant' &&
+          o.revoked_at == null &&
+          (o.expires_at == null || o.expires_at > now)
+      )
       .map((o: any) => o.permission_id);
-
     const revoked = overrides
       .filter((o: any) => o.override_type === 'revoke')
       .map((o: any) => o.permission_id);
@@ -1369,7 +1424,7 @@ export async function getUserForEdit(
       }
 
       moduleEntry.features.get(feature.code).permissions.push({
-        permissionId: perm.id,
+        permissionCode: perm.permission_code,
         permissionName: perm.permission_name,
         checked: finalPermissionIds.includes(perm.id),
       });
@@ -1463,7 +1518,15 @@ export async function updateUserFlexible(
       return reply.code(404).send({ error: 'User not found' });
     }
 
-    /* 2️⃣ Validate role and fetch role permissions */
+    /* 2️⃣ Resolve permission codes → IDs */
+    const permissionCodes: string[] = payload.permissionCodes || [];
+    const resolvedPermissions = await prisma.permissions.findMany({
+      where: { permission_code: { in: permissionCodes } },
+      select: { id: true },
+    });
+    const resolvedPermissionIds = resolvedPermissions.map((p: any) => p.id);
+
+    /* 2.5 Validate role and fetch role permissions */
     let rolePermissionIds: number[] = [];
     if (payload.roleId) {
       const role = await prisma.roles.findFirst({
@@ -1485,11 +1548,11 @@ export async function updateUserFlexible(
     }
 
     /* 3️⃣ Calculate permission diff */
-    const permissionsToGrant = (payload.permissionIds || []).filter(
+    const permissionsToGrant = resolvedPermissionIds.filter(
       (pid: number) => !rolePermissionIds.includes(pid)
     );
     const permissionsToRevoke = rolePermissionIds.filter(
-      (pid: number) => !(payload.permissionIds || []).includes(pid)
+      (pid: number) => !resolvedPermissionIds.includes(pid)
     );
 
     /* 4️⃣ Transaction */

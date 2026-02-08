@@ -1,4 +1,4 @@
-﻿import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { AuthService } from '../services/auth';
 import { EmailService } from '../services/email';
@@ -8,7 +8,7 @@ import { CookieManager } from '../utils/cookie';
 import { ValidationError, UnauthorizedError, ForbiddenError, NotFoundError } from '../utils/errors';
 import { config } from '../config';
 import prisma from '../plugins/prisma';
-import { resolveUserPermissions } from '../services/authorization.service';
+// import { resolveUserPermissions } from '../services/authorization.service';
 
 // import { getInstitutionAdminRole } from '../services/role.service';
 import { token_type } from '@prisma/client';
@@ -457,14 +457,18 @@ export async function consumeInviteHandler(request: FastifyRequest, reply: Fasti
   });
 
   const roles = Serializer.serializeRoles(tokenRec.user);
-  const permissions = await resolveUserPermissions(prisma, tokenRec.user.id);
+  const institutionId = tokenRec.user.institution_id ?? undefined;
+  const accessContext = await resolveAccessContext(prisma, tokenRec.user.id, institutionId);
 
   const jwt = AuthService.signJwt({
     sub: tokenRec.user.id.toString(),
     email: tokenRec.user.email,
-    institution_id: tokenRec.user.institution_id ?? undefined,
+    institution_id: institutionId,
+    plan_code: accessContext.plan_code,
     roles: roles.map((r: any) => r.name),
-    permissions,
+    permissions: accessContext.permissions,
+    modules: accessContext.modules.map((m) => m.code),
+    isSuperAdmin: !institutionId,
     must_change_password: tokenRec.user.must_change_password,
   });
 
@@ -565,7 +569,8 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
       },
     });
 
-    const permissions = await resolveUserPermissions(prisma, userId);
+    const institutionId = userPayload.institution_id as number | undefined;
+    const accessContext = await resolveAccessContext(prisma, BigInt(userId), institutionId);
 
     const userWithRoles = await prisma.users.findUnique({
       where: { id: userId },
@@ -577,8 +582,11 @@ export async function changePasswordHandler(request: FastifyRequest, reply: Fast
     const freshJwt = AuthService.signJwt({
       sub: userPayload.sub,
       email: userPayload.email,
-      roles: roles.map((r:any) => r.name),
-      permissions,
+      institution_id: institutionId,
+      plan_code: accessContext.plan_code,
+      roles: roles.map((r: any) => r.name),
+      permissions: accessContext.permissions,
+      modules: accessContext.modules.map((m) => m.code),
       isSuperAdmin: userPayload.isSuperAdmin,
     });
 
