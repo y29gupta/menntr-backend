@@ -6,6 +6,7 @@ import { AuthService } from '../services/auth';
 import { Serializer } from '../utils/serializers';
 import { CookieManager } from '../utils/cookie';
 import { provisionInstitution } from '../services/institution.service';
+import { Prisma } from '@prisma/client';
 
 export const CreateInstitutionBody = z.object({
   name: z.string().min(2),
@@ -268,9 +269,10 @@ export async function getInstitutionsHandler(
       name,
       code,
       contactEmail,
+      email,
       status,
       planCode,
-    } = request.query;
+    } = request.query as any;
 
     const pageNumber = Number(page);
     const limitNumber = Number(limit);
@@ -281,13 +283,13 @@ export async function getInstitutionsHandler(
       pageNumber < 1 ||
       limitNumber < 1
     ) {
-      return reply.code(400).send({
-        error: 'Invalid pagination parameters',
-      });
+      return reply.code(400).send({ error: 'Invalid pagination parameters' });
     }
 
+    const offset = (pageNumber - 1) * limitNumber;
+
     /* ----------------------------------
-       Filters (UNCHANGED)
+       COLUMN FILTERS (ENUM SAFE)
     ---------------------------------- */
     const where: any = {};
 
@@ -299,87 +301,131 @@ export async function getInstitutionsHandler(
       where.code = { contains: code, mode: 'insensitive' };
     }
 
-    if (contactEmail) {
-      where.contact_email = { contains: contactEmail, mode: 'insensitive' };
+    const emailFilter = email || contactEmail;
+    if (emailFilter) {
+      where.contact_email = {
+        contains: emailFilter,
+        mode: 'insensitive',
+      };
     }
 
+    // exact match only (enum-safe)
     if (status) {
       where.status = status;
     }
 
     if (planCode) {
       where.plan = {
-        code: {
-          contains: planCode,
-          mode: 'insensitive',
-        },
+        code: { contains: planCode, mode: 'insensitive' },
       };
     }
 
+    let institutions: any[] = [];
+    let meta: any;
+
+    /* ----------------------------------
+       GLOBAL SEARCH + PAGINATION
+    ---------------------------------- */
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { code: { contains: search, mode: 'insensitive' } },
-        { contact_email: { contains: search, mode: 'insensitive' } },
-      ];
+      /** 🔹 DATA QUERY */
+      institutions = await prisma.$queryRaw<any[]>(
+        Prisma.sql`
+          SELECT
+            i.id,
+            i.name,
+            i.code,
+            i.contact_email,
+            i.status,
+            i.created_at,
+            p.id   AS plan_id,
+            p.name AS plan_name,
+            p.code AS plan_code
+          FROM institutions i
+          LEFT JOIN plans p ON p.id = i.plan_id
+          WHERE
+            i.name ILIKE ${`%${search}%`}
+            OR i.code ILIKE ${`%${search}%`}
+            OR i.contact_email ILIKE ${`%${search}%`}
+            OR CAST(i.status AS TEXT) ILIKE ${`%${search}%`}
+            OR p.name ILIKE ${`%${search}%`}
+            OR p.code ILIKE ${`%${search}%`}
+          ORDER BY i.created_at DESC
+          LIMIT ${limitNumber}
+          OFFSET ${offset}
+        `
+      );
+
+      /** 🔹 COUNT QUERY (THIS FIXES PAGINATION) */
+      const countResult = await prisma.$queryRaw<{ count: bigint }[]>(
+        Prisma.sql`
+          SELECT COUNT(*)::bigint AS count
+          FROM institutions i
+          LEFT JOIN plans p ON p.id = i.plan_id
+          WHERE
+            i.name ILIKE ${`%${search}%`}
+            OR i.code ILIKE ${`%${search}%`}
+            OR i.contact_email ILIKE ${`%${search}%`}
+            OR CAST(i.status AS TEXT) ILIKE ${`%${search}%`}
+            OR p.name ILIKE ${`%${search}%`}
+            OR p.code ILIKE ${`%${search}%`}
+        `
+      );
+
+      const total = Number(countResult[0]?.count ?? 0);
+
+      meta = {
+        page: pageNumber,
+        limit: limitNumber,
+        total,
+        totalPages: Math.ceil(total / limitNumber),
+        currentPageCount: institutions.length,
+      };
+    } else {
+      /* ----------------------------------
+         NORMAL FILTER PAGINATION
+      ---------------------------------- */
+      [institutions, meta] = await prisma.institutions
+        .paginate({
+          where,
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            contact_email: true,
+            status: true,
+            created_at: true,
+            plan: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+          },
+          orderBy: { created_at: 'desc' },
+        })
+        .withPages({
+          page: pageNumber,
+          limit: limitNumber,
+        });
     }
 
     /* ----------------------------------
-       1️⃣ Fetch institutions (NO count here)
+       STUDENT COUNT
     ---------------------------------- */
-    const [institutions, meta] = await prisma.institutions
-      .paginate({
-        where,
-        select: {
-          id: true,
-          name: true,
-          code: true,
-          contact_email: true,
-          status: true,
-          created_at: true,
-          plan: {
-            select: {
-              id: true,
-              name: true,
-              code: true,
-            },
-          },
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-      })
-      .withPages({
-        page: pageNumber,
-        limit: limitNumber,
-      });
+    const ids = institutions.map((i: any) => i.id);
 
-    /* ----------------------------------
-       2️⃣ Get CORRECT student counts
-       (DISTINCT users per institution)
-    ---------------------------------- */
     const studentCounts = await prisma.users.groupBy({
       by: ['institution_id'],
       where: {
-        institution_id: {
-          in: institutions.map((i:any) => i.id),
-        },
+        institution_id: { in: ids },
         user_roles: {
-          some: {
-            role: {
-              name: 'Student', // ✅ lowercase (case-sensitive)
-            },
-          },
+          some: { role: { name: 'Student' } },
         },
       },
-      _count: {
-        id: true, // ✅ DISTINCT users.id
-      },
+      _count: { id: true },
     });
 
-    /* ----------------------------------
-       3️⃣ Map counts by institution_id
-    ---------------------------------- */
     const countMap = new Map<number, number>();
     for (const row of studentCounts) {
       if (row.institution_id !== null) {
@@ -388,29 +434,28 @@ export async function getInstitutionsHandler(
     }
 
     /* ----------------------------------
-       4️⃣ Final response
+       RESPONSE
     ---------------------------------- */
     return reply.send({
-      data: institutions.map((institution:any) => ({
-        id: institution.id,
-        name: institution.name,
-        code: institution.code,
-        contact_email: institution.contact_email,
-        status: institution.status,
-        created_at: institution.created_at,
-        plan: institution.plan,
-        studentCount: countMap.get(institution.id) ?? 0, // ✅ EXACT COUNT
+      data: institutions.map((i: any) => ({
+        id: i.id,
+        name: i.name,
+        code: i.code,
+        contact_email: i.contact_email,
+        status: i.status,
+        created_at: i.created_at,
+        plan: i.plan ?? {
+          id: i.plan_id,
+          name: i.plan_name,
+          code: i.plan_code,
+        },
+        studentCount: countMap.get(i.id) ?? 0,
       })),
-      meta: {
-        ...meta,
-        currentPageCount: institutions.length,
-      },
+      meta,
     });
   } catch (err) {
     request.log.error(err);
-    return reply.code(500).send({
-      error: 'Internal server error',
-    });
+    return reply.code(500).send({ error: 'Internal server error' });
   }
 }
 
