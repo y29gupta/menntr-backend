@@ -9,53 +9,31 @@ export async function listBatches(
     page?: number;
     limit?: number;
     search?: string;
-
-    // column filters
     name?: string;
     category?: string;
     department?: string;
     coordinator?: string;
-    status?: boolean;
   }
 ) {
   const { page, limit, skip } = getPagination(params);
-
-  /* ------------------------------------------------
-     STATUS HANDLING (COLUMN > GLOBAL)
-  ------------------------------------------------- */
-
-  const normalizedSearch = params.search?.trim().toLowerCase();
-
-  let statusFromSearch: boolean | undefined;
-  if (normalizedSearch === 'active') statusFromSearch = true;
-  if (normalizedSearch === 'inactive') statusFromSearch = false;
 
   const where: any = {
     institution_id: params.institution_id,
     AND: [],
   };
 
-  /* ---------------- COLUMN FILTERS (PRIORITY) ---------------- */
-
-  // column filter ALWAYS wins
-  if (params.status !== undefined) {
-    where.AND.push({ is_active: params.status });
-  }
-  // fallback to global search status
-  else if (statusFromSearch !== undefined) {
-    where.AND.push({ is_active: statusFromSearch });
-  }
+  /* ================= COLUMN FILTERS ================= */
 
   if (params.name) {
     where.AND.push({
-      name: { contains: params.name, mode: 'insensitive' },
+      name: { contains: params.name.trim(), mode: 'insensitive' },
     });
   }
 
   if (params.category) {
     where.AND.push({
       category_role: {
-        name: { contains: params.category, mode: 'insensitive' },
+        name: { contains: params.category.trim(), mode: 'insensitive' },
       },
     });
   }
@@ -63,7 +41,7 @@ export async function listBatches(
   if (params.department) {
     where.AND.push({
       department_role: {
-        name: { contains: params.department, mode: 'insensitive' },
+        name: { contains: params.department.trim(), mode: 'insensitive' },
       },
     });
   }
@@ -72,16 +50,16 @@ export async function listBatches(
     where.AND.push({
       coordinator: {
         OR: [
-          { first_name: { contains: params.coordinator, mode: 'insensitive' } },
-          { last_name: { contains: params.coordinator, mode: 'insensitive' } },
+          { first_name: { contains: params.coordinator.trim(), mode: 'insensitive' } },
+          { last_name: { contains: params.coordinator.trim(), mode: 'insensitive' } },
         ],
       },
     });
   }
 
-  /* ---------------- GLOBAL SEARCH (TEXT ONLY) ---------------- */
-  // 🚨 skip text OR if search was a status keyword
-  if (params.search && statusFromSearch === undefined) {
+  /* ================= GLOBAL SEARCH (TEXT ONLY) ================= */
+
+  if (params.search) {
     const search = params.search.trim();
 
     where.AND.push({
@@ -112,9 +90,6 @@ export async function listBatches(
     });
   }
 
-  // Prisma safety
-  if (where.AND.length === 0) delete where.AND;
-
   const [rows, total] = await Promise.all([
     prisma.batches.findMany({
       where,
@@ -134,16 +109,7 @@ export async function listBatches(
   return buildPaginatedResponse(rows, total, page, limit);
 }
 
-
-
-
-
-
-export async function getBatchById(
-  prisma: PrismaClient,
-  id: number,
-  institution_id: number
-) {
+export async function getBatchById(prisma: PrismaClient, id: number, institution_id: number) {
   const batch = await prisma.batches.findFirst({
     where: { id, institution_id },
     include: {
@@ -258,7 +224,6 @@ export async function createBatch(
     return batch;
   });
 }
-
 
 // export async function updateBatch(
 //   prisma: PrismaClient,
@@ -379,13 +344,7 @@ export async function updateBatch(
   });
 }
 
-
-
-export async function deleteBatch(
-  prisma: PrismaClient,
-  id: number,
-  institution_id: number
-) {
+export async function deleteBatch(prisma: PrismaClient, id: number, institution_id: number) {
   const exists = await prisma.batches.findFirst({
     where: { id, institution_id },
   });
@@ -395,10 +354,7 @@ export async function deleteBatch(
   await prisma.batches.delete({ where: { id } });
 }
 
-export async function getBatchMeta(
-  prisma: PrismaClient,
-  institution_id: number
-) {
+export async function getBatchMeta(prisma: PrismaClient, institution_id: number) {
   const [categories, departments, faculties] = await Promise.all([
     prisma.roles.findMany({
       where: {

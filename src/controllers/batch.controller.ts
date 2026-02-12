@@ -1,8 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import {
-  CreateBatchSchema,
-  UpdateBatchSchema,
-} from '../schemas/batch.zod';
+import { CreateBatchSchema, UpdateBatchSchema } from '../schemas/batch.zod';
 import {
   listBatches,
   createBatch,
@@ -31,20 +28,17 @@ export async function listBatchHandler(req: FastifyRequest, reply: FastifyReply)
     category,
     department,
     coordinator,
-    status,
   } = req.query as any;
 
   const result = await listBatches(prisma, {
     institution_id: user.institution_id,
     page: Number(page),
     limit: Number(limit),
-
     search,
     name,
     category,
     department,
     coordinator,
-    status: status !== undefined ? status === 'true' : undefined,
   });
 
   const data = result.data.map((b) => {
@@ -71,16 +65,17 @@ export async function listBatchHandler(req: FastifyRequest, reply: FastifyReply)
       academic_year: startYear && endYear ? `${startYear}-${endYear}` : null,
 
       students: b.students.length,
+
+      // 🔹 STATUS DISPLAY ONLY (no filtering)
       status: b.is_active ? 'Active' : 'Inactive',
     };
   });
 
   reply.send({
-    meta: result.meta,
     data,
+    meta: result.meta,
   });
 }
-
 
 // export async function createBatchHandler(
 //   req: FastifyRequest,
@@ -131,10 +126,7 @@ export async function listBatchHandler(req: FastifyRequest, reply: FastifyReply)
 //   reply.send(batch);
 // }
 
-export async function deleteBatchHandler(
-  req: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function deleteBatchHandler(req: FastifyRequest, reply: FastifyReply) {
   const prisma = req.prisma;
   const id = Number((req.params as any).id);
   const user_id = BigInt((req as any).user.sub);
@@ -148,10 +140,7 @@ export async function deleteBatchHandler(
   reply.status(204).send();
 }
 
-export async function batchMetaHandler(
-  req: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function batchMetaHandler(req: FastifyRequest, reply: FastifyReply) {
   const prisma = req.prisma;
   const user_id = BigInt((req as any).user.sub);
 
@@ -196,8 +185,6 @@ export async function createBatchHandler(req: FastifyRequest, reply: FastifyRepl
   const batch = await createBatch(prisma, user.institution_id, data);
   reply.code(201).send(batch);
 }
-
-
 
 export async function updateBatchHandler(req: FastifyRequest, reply: FastifyReply) {
   const parsed = UpdateBatchSchema.safeParse(req.body);
@@ -256,7 +243,3 @@ export async function updateBatchHandler(req: FastifyRequest, reply: FastifyRepl
 
   reply.send(batch);
 }
-
-
-
-
