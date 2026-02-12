@@ -1,8 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import {
-  CreateDepartmentSchema,
-  UpdateDepartmentSchema,
-} from '../schemas/department.zod';
+import { CreateDepartmentSchema, UpdateDepartmentSchema } from '../schemas/department.zod';
 import {
   getDepartments,
   createDepartment,
@@ -26,13 +23,17 @@ export async function listDepartments(request: FastifyRequest, reply: FastifyRep
     throw new ForbiddenError('No institution linked');
   }
 
-  const { page = 1, limit = 10, search = '' } = request.query as any;
+  const { page = 1, limit = 10, search = '', name, code, category, hod } = request.query as any;
 
   const result = await getDepartments(prisma, {
     institution_id: user.institution_id,
     page: Number(page),
     limit: Number(limit),
     search,
+    name,
+    code,
+    category,
+    hod,
   });
 
   const data = result.data.map((r: any) => ({
@@ -40,13 +41,11 @@ export async function listDepartments(request: FastifyRequest, reply: FastifyRep
     name: r.name,
     code: r.code,
     category: r.parent ? { id: r.parent.id, name: r.parent.name } : null,
-    // Return all users assigned to this department (from user_roles table)
     assignedUsers: r.user_roles.map((ur: any) => ({
       id: Serializer.bigIntToString(ur.user.id),
       name: `${ur.user.first_name ?? ''} ${ur.user.last_name ?? ''}`.trim(),
       email: ur.user.email,
     })),
-    // For backward compatibility, keep hod as first user or null
     hod: r.user_roles.length
       ? {
           id: Serializer.bigIntToString(r.user_roles[0].user.id),
@@ -61,19 +60,15 @@ export async function listDepartments(request: FastifyRequest, reply: FastifyRep
   }));
 
   reply.send({
-    total: result.meta.totalCount, // Total count of all departments
+    data,
+    total: result.meta.totalCount,
     page: result.meta.currentPage,
     limit: result.meta.pageSize,
-    ...result.meta, // Include all other meta fields
-    data,
+    ...result.meta,
   });
 }
 
-
-export async function addDepartment(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function addDepartment(request: FastifyRequest, reply: FastifyReply) {
   const parsed = CreateDepartmentSchema.safeParse(request.body);
   if (!parsed.success) {
     throw new ValidationError('Invalid request', parsed.error.issues);
@@ -91,19 +86,12 @@ export async function addDepartment(
     throw new ForbiddenError('No institution linked');
   }
 
-  const department = await createDepartment(
-    prisma,
-    user.institution_id,
-    parsed.data
-  );
+  const department = await createDepartment(prisma, user.institution_id, parsed.data);
 
   reply.code(201).send(department);
 }
 
-export async function editDepartment(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function editDepartment(request: FastifyRequest, reply: FastifyReply) {
   const parsed = UpdateDepartmentSchema.safeParse(request.body);
   if (!parsed.success) {
     throw new ValidationError('Invalid request', parsed.error.issues);
@@ -122,20 +110,12 @@ export async function editDepartment(
     throw new ForbiddenError('No institution linked');
   }
 
-  const updated = await updateDepartment(
-    prisma,
-    department_id,
-    user.institution_id,
-    parsed.data
-  );
+  const updated = await updateDepartment(prisma, department_id, user.institution_id, parsed.data);
 
   reply.send(updated);
 }
 
-export async function departmentMeta(
-  req: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function departmentMeta(req: FastifyRequest, reply: FastifyReply) {
   const prisma = req.prisma;
   const authUser = (req as any).user;
 
@@ -170,11 +150,7 @@ export async function departmentMeta(
   reply.send(meta);
 }
 
-
-export async function deleteDepartment(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function deleteDepartment(request: FastifyRequest, reply: FastifyReply) {
   const prisma = request.prisma;
   const department_id = Number((request.params as any).id);
   const user_id = BigInt((request as any).user.sub);
@@ -200,11 +176,7 @@ export async function deleteDepartment(
     throw new ForbiddenError('Insufficient permissions');
   }
 
-  await deleteDepartmentService(
-    prisma,
-    department_id,
-    user.institution_id
-  );
+  await deleteDepartmentService(prisma, department_id, user.institution_id);
 
   reply.send({ message: 'Department deleted successfully' });
 }
