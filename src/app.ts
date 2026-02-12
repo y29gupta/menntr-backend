@@ -39,6 +39,7 @@ import {notificationRoutes} from "./routes/notification.routes";
 import {proctoringRoutes} from "./routes/proctoring.routes";
 import {studentDashboardRoutes} from "./routes/student/dashboard.routes";
 import { rateLimitPlugin } from './plugins/rateLimit';
+import { studentAssessmentResultRoutes } from './routes/student/assessment.routes';
 
 export function buildApp() {
   const app = fastify({
@@ -143,6 +144,7 @@ export function buildApp() {
   app.register(notificationRoutes);
   app.register(proctoringRoutes);
   app.register(studentDashboardRoutes);
+  app.register(studentAssessmentResultRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {

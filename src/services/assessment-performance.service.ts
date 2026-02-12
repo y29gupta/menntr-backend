@@ -408,3 +408,152 @@ export async function getAssessmentAttemptNumbers(
     attempts: attempts.map((a) => a.attempt_number),
   };
 }
+export async function getStudentQuestionDetails(
+  prisma: PrismaClient,
+  assessmentId: bigint,
+  studentId: bigint,
+  attemptId: bigint,
+  institutionId: number
+) {
+  /* =====================================================
+     1️⃣ VALIDATE ATTEMPT
+     ===================================================== */
+
+  const attempt = await prisma.assessment_attempts.findFirst({
+    where: {
+      id: attemptId,
+      assessment_id: assessmentId,
+      student_id: studentId,
+      assessment: {
+        institution_id: institutionId,
+      },
+    },
+    select: { id: true },
+  });
+
+  if (!attempt) {
+    throw new Error('Attempt not found or forbidden');
+  }
+
+  /* =====================================================
+     2️⃣ FETCH ALL ASSESSMENT QUESTIONS
+     ===================================================== */
+
+  const assessmentQuestions = await prisma.assessment_questions.findMany({
+    where: { assessment_id: assessmentId },
+    include: {
+      question: {
+        include: {
+          options: true,
+        },
+      },
+    },
+    orderBy: { sort_order: 'asc' },
+  });
+
+  /* =====================================================
+     3️⃣ FETCH STUDENT ANSWERS
+     ===================================================== */
+
+  const answers = await prisma.attempt_answers.findMany({
+    where: { attempt_id: attemptId },
+  });
+
+  const answerMap = new Map<string, (typeof answers)[0]>();
+
+  for (const ans of answers) {
+    answerMap.set(ans.assessment_question_id.toString(), ans);
+  }
+
+  /* =====================================================
+     4️⃣ FETCH CODING SUBMISSIONS
+     ===================================================== */
+
+  const codingSubmissions = await prisma.coding_submissions.findMany({
+    where: {
+      attempt_id: attemptId,
+      is_final_submission: true,
+    },
+  });
+
+  const codingMap = new Map<string, any>();
+
+  for (const sub of codingSubmissions) {
+    codingMap.set(sub.question_id.toString(), sub);
+  }
+
+  /* =====================================================
+     5️⃣ BUILD FULL RESPONSE (ALL QUESTIONS)
+     ===================================================== */
+
+  return assessmentQuestions.map((aq, index) => {
+    const question = aq.question;
+    const questionId = question.id.toString();
+    const ans = answerMap.get(aq.id.toString());
+    const isCoding = question.question_type === 'coding';
+
+    /* -------------------------------
+       MCQ QUESTIONS
+    -------------------------------- */
+
+    if (!isCoding) {
+      const correctOptions = question.options.filter((o) => o.is_correct).map((o) => o.option_text);
+
+      const selectedOptions = ans
+        ? question.options
+            .filter((o) => ans.selected_option_ids.includes(o.id))
+            .map((o) => o.option_text)
+        : [];
+
+      return {
+        questionNo: index + 1,
+        questionId,
+        questionText: question.question_text,
+        marks: aq.points,
+        type: question.question_type,
+        difficulty: question.difficulty_level,
+
+        candidateResponse: selectedOptions,
+        correctAnswer: correctOptions,
+
+        resultStatus: ans ? (ans.is_correct ? 'Correct' : 'Wrong') : 'Not Attempted',
+
+        score: ans ? `${ans.points_earned}/${aq.points}` : `0/${aq.points}`,
+      };
+    }
+
+    /* -------------------------------
+       CODING QUESTIONS
+    -------------------------------- */
+
+    const submission = codingMap.get(questionId);
+
+    return {
+      questionNo: index + 1,
+      questionId,
+      questionText: question.question_text,
+      marks: aq.points,
+      type: 'coding',
+      difficulty: question.difficulty_level,
+
+      submittedCode: submission?.source_code ?? null,
+      language: submission?.language ?? null,
+
+      testCasesPassed: submission
+        ? `${submission.test_cases_passed}/${submission.total_test_cases}`
+        : null,
+
+      executionTimeSeconds: submission?.execution_time_ms
+        ? submission.execution_time_ms / 1000
+        : null,
+
+      resultStatus: submission
+        ? submission.status === 'accepted'
+          ? 'Correct'
+          : 'Wrong'
+        : 'Not Attempted',
+
+      score: submission ? `${submission.points_earned}/${submission.max_points}` : `0/${aq.points}`,
+    };
+  });
+}

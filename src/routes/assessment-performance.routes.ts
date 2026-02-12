@@ -7,6 +7,7 @@ import {
   getStudentSectionPerformanceHandler,
   getStudentIntegrityHandler,
   getAssessmentAttemptNumbersHandler,
+  getStudentQuestionDetailsHandler,
 } from '../controllers/assessment-performance.controller';
 
 export async function assessmentPerformanceRoutes(app: any) {
@@ -60,5 +61,11 @@ export async function assessmentPerformanceRoutes(app: any) {
     '/assessments/:id/performance/candidates',
     { preHandler: [authGuard] },
     getCandidatePerformanceHandler
+  );
+
+  app.get(
+    '/assessments/:assessmentId/students/:studentId/attempts/:attemptId/questions',
+    { preHandler: [authGuard] },
+    getStudentQuestionDetailsHandler
   );
 }

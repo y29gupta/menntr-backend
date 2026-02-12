@@ -127,3 +127,26 @@ export async function getAssessmentAttemptNumbersHandler(
 
   reply.send(data);
 }
+
+export async function getStudentQuestionDetailsHandler(
+  req: FastifyRequest<{
+    Params: {
+      assessmentId: string;
+      studentId: string;
+      attemptId: string;
+    };
+  }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const data = await service.getStudentQuestionDetails(
+    req.prisma,
+    BigInt(req.params.assessmentId),
+    BigInt(req.params.studentId),
+    BigInt(req.params.attemptId),
+    user.institution_id
+  );
+
+  reply.send(data);
+}
