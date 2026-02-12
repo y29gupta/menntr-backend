@@ -1,11 +1,6 @@
 import { Prisma, PrismaClient } from '@prisma/client';
-import {
-  NotFoundError,
-  ConflictError,
-  ForbiddenError,
-} from '../utils/errors';
+import { NotFoundError, ConflictError, ForbiddenError } from '../utils/errors';
 import { buildPaginatedResponse, getPagination } from '../utils/pagination';
-
 
 const DEPARTMENT_LEVEL = 3;
 const CATEGORY_LEVEL = 2;
@@ -80,14 +75,62 @@ export async function getDepartments(
     is_system_role: false,
   };
 
-  if (params.name) where.name = { contains: params.name, mode: Prisma.QueryMode.insensitive };
-  if (params.code) where.code = { contains: params.code, mode: Prisma.QueryMode.insensitive };
+  /* =======================
+     COLUMN FILTERS
+  ======================= */
+
+  if (params.name) {
+    where.name = {
+      contains: params.name,
+      mode: Prisma.QueryMode.insensitive,
+    };
+  }
+
+  if (params.code) {
+    where.code = {
+      contains: params.code,
+      mode: Prisma.QueryMode.insensitive,
+    };
+  }
+
+  // ✅ Category filter (parent role)
+  if (params.category) {
+    where.parent = {
+      name: {
+        contains: params.category,
+        mode: Prisma.QueryMode.insensitive,
+      },
+    };
+  }
+
+  // ✅ HOD / Assigned User filter
+  if (params.hod) {
+    where.user_roles = {
+      some: {
+        user: {
+          OR: [
+            { first_name: { contains: params.hod, mode: 'insensitive' } },
+            { last_name: { contains: params.hod, mode: 'insensitive' } },
+            { email: { contains: params.hod, mode: 'insensitive' } },
+          ],
+        },
+      },
+    };
+  }
+
+  /* =======================
+     GLOBAL SEARCH
+  ======================= */
 
   if (params.search) {
     where.OR = [
-      { name: { contains: params.search, mode: Prisma.QueryMode.insensitive } },
-      { code: { contains: params.search, mode: Prisma.QueryMode.insensitive } },
-      { parent: { name: { contains: params.search, mode: Prisma.QueryMode.insensitive } } },
+      { name: { contains: params.search, mode: 'insensitive' } },
+      { code: { contains: params.search, mode: 'insensitive' } },
+      {
+        parent: {
+          name: { contains: params.search, mode: 'insensitive' },
+        },
+      },
       {
         user_roles: {
           some: {
@@ -111,7 +154,9 @@ export async function getDepartments(
       take: limit,
       include: {
         parent: true,
-        user_roles: { include: { user: true } },
+        user_roles: {
+          include: { user: true },
+        },
       },
       orderBy: { created_at: 'desc' },
     }),
@@ -120,12 +165,6 @@ export async function getDepartments(
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
-
-
-
-
-
-
 
 export async function createDepartment(
   prisma: PrismaClient,
@@ -198,8 +237,6 @@ export async function createDepartment(
     return department;
   });
 }
-
-
 
 export async function updateDepartment(
   prisma: PrismaClient,
@@ -274,11 +311,7 @@ export async function updateDepartment(
   });
 }
 
-
-export async function getDepartmentMeta(
-  prisma: PrismaClient,
-  institution_id: number
-) {
+export async function getDepartmentMeta(prisma: PrismaClient, institution_id: number) {
   const [categories, hodUsers] = await Promise.all([
     // ✅ Parent Categories - Include all categories (even without codes) to show default engineering category
     prisma.roles.findMany({

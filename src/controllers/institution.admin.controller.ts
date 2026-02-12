@@ -7,6 +7,7 @@ import XLSX from 'xlsx';
 import bcrypt from 'bcrypt';
 import { sendInviteInternal } from '../services/invite.service';
 import { EmailService } from '../services/email';
+import { Prisma } from '@prisma/client';
 
 const CreateInstitutionMemberSchema = z.object({
   firstName: z.string().min(2),
@@ -918,21 +919,6 @@ export async function listUsers(request: FastifyRequest, reply: FastifyReply) {
       };
     }
 
-    // Department filter (from role name)
-    if (department) {
-      where.user_roles = {
-        some: {
-          role: {
-            is_system_role: false,
-            name: {
-              contains: `- ${department}`,
-              mode: 'insensitive',
-            },
-          },
-        },
-      };
-    }
-
     /* ---------------- GLOBAL SEARCH ---------------- */
 
     const orConditions: any[] = [];
@@ -973,65 +959,63 @@ export async function listUsers(request: FastifyRequest, reply: FastifyReply) {
 
     /* ---------------- PAGINATED QUERY ---------------- */
 
-const [rows, meta] = await prisma.users
-  .paginate({
-    where,
-    select: {
-      id: true,
-      first_name: true,
-      last_name: true,
-      email: true,
-      status: true,
-      last_login_at: true,
-      user_roles: {
-        where: {
-          role: { is_system_role: false },
-        },
+    const [rows, meta] = await prisma.users
+      .paginate({
+        where,
         select: {
-          role: {
+          id: true,
+          first_name: true,
+          last_name: true,
+          email: true,
+          status: true,
+          last_login_at: true,
+          user_roles: {
+            where: {
+              role: { is_system_role: false },
+            },
             select: {
-              name: true,
-              role_hierarchy_id: true,
-              hierarchy: {
+              role: {
                 select: {
-                  level: true,
+                  name: true,
+                  role_hierarchy_id: true,
+                  hierarchy: {
+                    select: {
+                      level: true,
+                    },
+                  },
                 },
               },
             },
           },
         },
-      },
-    },
-    orderBy: { created_at: 'desc' },
-  })
-  .withPages({
-    page: pageNumber,
-    limit: limitNumber,
-  });
-
+        orderBy: { created_at: 'desc' },
+      })
+      .withPages({
+        page: pageNumber,
+        limit: limitNumber,
+      });
 
     /* ---------------- RESPONSE MAPPING ---------------- */
 
-const data = rows.map((u: any) => {
-  const roles = u.user_roles.map((ur: any) => ur.role);
+    const data = rows.map((u: any) => {
+      const roles = u.user_roles.map((ur: any) => ur.role);
 
-  // Department role = hierarchy level 3 (as per your schema)
-  const departmentRole = roles.find((r: any) => r.hierarchy?.level === 3) ?? null;
+      // Department role = hierarchy level 3 (as per your schema)
+      // const departmentRole = roles.find((r: any) => r.hierarchy?.level === 3) ?? null;
 
-  // Primary role = first role that is NOT department
-  const primaryRole = roles.find((r: any) => r.hierarchy?.level !== 3) ?? null;
+      // Primary role = first role that is NOT department
+      const primaryRole = roles.find((r: any) => r.hierarchy?.level !== 3) ?? null;
 
-  return {
-    id: u.id.toString(),
-    name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
-    email: u.email,
-    role: primaryRole?.name ?? null,
-    department: departmentRole?.name ?? null,
-    status: u.status,
-    lastLoginAt: u.last_login_at,
-  };
-});
-
+      return {
+        id: u.id.toString(),
+        name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
+        email: u.email,
+        role: primaryRole?.name ?? null,
+        // department: departmentRole?.name ?? null,
+        status: u.status,
+        lastLoginAt: u.last_login_at,
+      };
+    });
 
     /* ---------------- FINAL RESPONSE ---------------- */
 
@@ -1049,8 +1033,6 @@ const data = rows.map((u: any) => {
     });
   }
 }
-
-
 
 export async function bulkCreateUsersFromExcel(request: FastifyRequest, reply: FastifyReply) {
   try {
