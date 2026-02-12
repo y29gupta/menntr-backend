@@ -37,6 +37,7 @@ import {studentAssessmentRuntimeRoutes} from "./routes/student/student-assessmen
 import {broadcastRoutes} from "./routes/broadcast.routes";
 import {notificationRoutes} from "./routes/notification.routes";
 import {proctoringRoutes} from "./routes/proctoring.routes";
+import {studentDashboardRoutes} from "./routes/student/dashboard.routes";
 import { rateLimitPlugin } from './plugins/rateLimit';
 
 export function buildApp() {
@@ -141,6 +142,7 @@ export function buildApp() {
   app.register(broadcastRoutes);
   app.register(notificationRoutes);
   app.register(proctoringRoutes);
+  app.register(studentDashboardRoutes);
   // Health check endpoint
   app.get('/health', async () => {
     return {
