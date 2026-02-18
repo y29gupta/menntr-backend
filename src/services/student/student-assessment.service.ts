@@ -8,51 +8,46 @@ import {
 import { randomUUID } from 'crypto';
 import { buildPaginatedResponse, getPagination } from '../../utils/pagination';
 
-type StudentAssessmentStatus = 'ongoing' | 'upcoming' | 'completed' | 'published';
-function getPendingInfo(
-  endTime: Date | null,
-  now: Date
-): { pending: boolean; pending_reason?: 'ending_today' | 'ending_soon' } {
-  if (!endTime) return { pending: false };
-
-  const end = endTime.getTime();
-  const nowMs = now.getTime();
-
-  if (end <= nowMs) {
-    return { pending: false };
-  }
-
-  const oneDayMs = 24 * 60 * 60 * 1000;
-  const sevenDaysMs = 7 * oneDayMs;
-
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-
-  const endOfToday = new Date(startOfToday);
-  endOfToday.setHours(23, 59, 59, 999);
-
-  if (end >= startOfToday.getTime() && end <= endOfToday.getTime()) {
-    return { pending: true, pending_reason: 'ending_today' };
-  }
-
-  if (end <= nowMs + sevenDaysMs) {
-    return { pending: true, pending_reason: 'ending_soon' };
-  }
-
-  return { pending: false };
-}
-
 export async function listStudentAssessments(
   prisma: PrismaClient,
   input: {
     student_id: bigint;
     institution_id: number;
-    status: StudentAssessmentStatus;
+    status: 'ongoing' | 'upcoming' | 'completed';
+
+    type?: 'mcq' | 'coding' | 'mcq+coding';
+    ending?: 'today' | 'this_week';
+    scheduled?: 'tomorrow' | 'this_week' | 'next_week';
+    evaluation?: 'published' | 'under_evaluation';
+
+    search?: string;
   }
 ) {
   const now = new Date();
 
-  // 1️⃣ Student → active batch
+  /* 📅 Date helpers */
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const endOfToday = new Date(startOfToday);
+  endOfToday.setHours(23, 59, 59, 999);
+
+  const endOfWeek = new Date(startOfToday);
+  endOfWeek.setDate(startOfToday.getDate() + (7 - startOfToday.getDay()));
+
+  const startOfTomorrow = new Date(startOfToday);
+  startOfTomorrow.setDate(startOfToday.getDate() + 1);
+
+  const endOfTomorrow = new Date(endOfToday);
+  endOfTomorrow.setDate(endOfToday.getDate() + 1);
+
+  const startOfNextWeek = new Date(endOfWeek);
+  startOfNextWeek.setDate(endOfWeek.getDate() + 1);
+
+  const endOfNextWeek = new Date(startOfNextWeek);
+  endOfNextWeek.setDate(startOfNextWeek.getDate() + 6);
+
+  /* 1️⃣ Active batch */
   const batchStudent = await prisma.batch_students.findFirst({
     where: {
       student_id: input.student_id,
@@ -64,11 +59,9 @@ export async function listStudentAssessments(
     },
   });
 
-  if (!batchStudent) {
-    return { assessments: [] };
-  }
+  if (!batchStudent) return { assessments: [] };
 
-  // 2️⃣ Fetch all published assessments for batch
+  /* 2️⃣ Fetch assessments */
   const assessments = await prisma.assessments.findMany({
     where: {
       institution_id: input.institution_id,
@@ -88,8 +81,8 @@ export async function listStudentAssessments(
     orderBy: { start_time: 'asc' },
   });
 
-  // 3️⃣ Student-visible filtering (FINAL)
-  const filtered = assessments.filter((a) => {
+  /* 3️⃣ STATUS FILTER */
+  let result = assessments.filter((a) => {
     const attempt = a.attempts[0];
 
     const hasSubmitted =
@@ -107,55 +100,143 @@ export async function listStudentAssessments(
         return isUpcoming && !hasSubmitted;
 
       case 'completed':
-        return hasSubmitted || isExpired;
-
-      case 'published':
-        // 🔒 published = ongoing (student meaning)
-        return isStarted && !isExpired && !hasSubmitted;
+        return hasSubmitted; // ✅ only attempted
 
       default:
         return false;
     }
   });
 
-  // 4️⃣ UI-ready response
-  return {
-    assessments: filtered.map((a) => {
+  /* 4️⃣ COMPLETED → EVALUATION */
+  if (input.status === 'completed' && input.evaluation) {
+    result = result.filter((a) => {
       const attempt = a.attempts[0];
-      const hasSubmitted = attempt?.status === AttemptStatus.submitted || attempt?.status === AttemptStatus.evaluated;
+      if (!attempt) return false;
 
-      const pendingInfo = !hasSubmitted ? getPendingInfo(a.end_time, now) : {pending: false};
+      if (input.evaluation === 'published') {
+        return attempt.status === AttemptStatus.evaluated;
+      }
 
-      const isStarted = !a.start_time || a.start_time <= now;
+      if (input.evaluation === 'under_evaluation') {
+        return attempt.status === AttemptStatus.submitted;
+      }
+
+      return true;
+    });
+  }
+
+  /* 5️⃣ TYPE FILTER (SCHEMA SAFE) */
+  if (input.type) {
+    result = result.filter((a) => {
+      const tags = (a.tags ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean);
+
+      const hasCoding = tags.includes('coding');
+      const hasMcq = tags.includes('mcq');
+
+      let derivedType: 'mcq' | 'coding' | 'mcq+coding';
+
+      if (hasCoding && hasMcq) derivedType = 'mcq+coding';
+      else if (hasCoding) derivedType = 'coding';
+      else if (hasMcq) derivedType = 'mcq';
+      else {
+        // ✅ missing tags → treat as MCQ
+        derivedType = 'mcq';
+      }
+
+      return derivedType === input.type;
+    });
+  }
+
+  /* 6️⃣ GLOBAL SEARCH */
+  if (input.search) {
+    const search = input.search.toLowerCase().trim();
+
+    result = result.filter((a) => {
+      const titleMatch = a.title.toLowerCase().includes(search);
+
+      const tags = (a.tags ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean);
+
+      const hasCoding = tags.includes('coding');
+      const hasMcq = tags.includes('mcq');
+
+      let typeLabel = 'mcq'; // default
+
+      if (hasCoding && hasMcq) typeLabel = 'mcq+coding';
+      else if (hasCoding) typeLabel = 'coding';
+      else if (hasMcq) typeLabel = 'mcq';
+
+      const typeMatch = typeLabel.includes(search);
+
+      return titleMatch || typeMatch;
+    });
+  }
+
+  /* 7️⃣ ONGOING → ENDING */
+  if (input.status === 'ongoing' && input.ending) {
+    result = result.filter((a) => {
+      if (!a.end_time) return false;
+
+      if (input.ending === 'today') {
+        return a.end_time >= startOfToday && a.end_time <= endOfToday;
+      }
+
+      if (input.ending === 'this_week') {
+        return a.end_time >= startOfToday && a.end_time <= endOfWeek;
+      }
+
+      return true;
+    });
+  }
+
+  /* 8️⃣ UPCOMING → SCHEDULED */
+  if (input.status === 'upcoming' && input.scheduled) {
+    result = result.filter((a) => {
+      if (!a.start_time) return false;
+
+      if (input.scheduled === 'tomorrow') {
+        return a.start_time >= startOfTomorrow && a.start_time <= endOfTomorrow;
+      }
+
+      if (input.scheduled === 'this_week') {
+        return a.start_time >= startOfToday && a.start_time <= endOfWeek;
+      }
+
+      if (input.scheduled === 'next_week') {
+        return a.start_time >= startOfNextWeek && a.start_time <= endOfNextWeek;
+      }
+
+      return true;
+    });
+  }
+
+  /* 9️⃣ RESPONSE */
+  return {
+    assessments: result.map((a) => {
+      const attempt = a.attempts[0];
+
+      const tags = (a.tags ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean);
+
+      const hasCoding = tags.includes('coding');
+      const hasMcq = tags.includes('mcq');
+
+      let type: 'MCQ' | 'Coding' | 'Coding + MCQ';
+
+      if (hasCoding && hasMcq) type = 'Coding + MCQ';
+      else if (hasCoding) type = 'Coding';
+      else type = 'MCQ';
 
       return {
         id: a.id.toString(),
         title: a.title,
-
-        type: a.tags?.includes('coding')
-          ? 'Coding'
-          : a.tags?.includes('mcq')
-            ? 'MCQ'
-            : 'Coding + MCQ',
-
+        type,
         start_time: a.start_time,
         end_time: a.end_time,
         duration_minutes: a.duration_minutes,
-
-        starts_in_ms:
-          a.start_time && input.status === 'upcoming'
-            ? Math.max(a.start_time.getTime() - now.getTime(), 0)
-            : null,
-
         attempt_status: attempt?.status ?? 'not_started',
-
         can_start:
-          (!attempt ||
-            (attempt.status !== AttemptStatus.submitted &&
-              attempt.status !== AttemptStatus.evaluated)),
-
-        pending: pendingInfo.pending,
-        pending_reason: pendingInfo.pending_reason ?? null,
+          !attempt ||
+          (attempt.status !== AttemptStatus.submitted &&
+            attempt.status !== AttemptStatus.evaluated),
       };
     }),
   };

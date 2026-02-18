@@ -1,12 +1,17 @@
 import * as XLSX from 'xlsx';
 import { parse } from 'csv-parse/sync';
 import { ConflictError } from '../utils/errors';
-import { Prisma, PrismaClient, AssessmentStatus, QuestionDifficulty, QuestionType } from '@prisma/client';
+import {
+  Prisma,
+  PrismaClient,
+  AssessmentStatus,
+  QuestionDifficulty,
+  QuestionType,
+} from '@prisma/client';
 import { timeAgo } from '../utils/time';
 import { capitalize, formatQuestionType } from '../utils/assessments/formatQuestionType';
 import { findOrCreateQuestion } from './question.service';
 import { buildPaginatedResponse, getPagination } from '../utils/pagination';
-
 
 interface BulkUploadCodingInput {
   assessment_id: bigint;
@@ -71,7 +76,6 @@ export async function createAssessment(
     } as Prisma.assessmentsUncheckedCreateInput,
   });
 }
-
 
 /* -------------------------------
    AUDIENCE
@@ -283,12 +287,13 @@ export async function listAssessments(
     tab: 'active' | 'draft' | 'completed';
     page?: number;
     limit?: number;
+
     search?: string;
-    status?: string;
+
     title?: string;
     category?: string;
     batch?: string;
-    questions?: number;
+    status?: string;
   }
 ) {
   const page = params.page && params.page > 0 ? params.page : 1;
@@ -299,7 +304,7 @@ export async function listAssessments(
 
   const AND: any[] = [{ institution_id: params.institution_id }, { is_deleted: false }];
 
-  /* ---------------- TAB ---------------- */
+  /* ---------------- TAB FILTER ---------------- */
   if (params.tab === 'active') {
     AND.push({ status: { in: ['published', 'active'] } });
     AND.push({ OR: [{ end_time: null }, { end_time: { gt: now } }] });
@@ -320,49 +325,58 @@ export async function listAssessments(
   }
 
   /* ---------------- COLUMN FILTERS ---------------- */
+
+  // Title filter
   if (params.title) {
     AND.push({
-      title: { contains: params.title, mode: 'insensitive' },
+      title: { contains: params.title.trim(), mode: 'insensitive' },
     });
   }
 
+  // Category filter (JSON → normalized)
   if (params.category) {
+    const normalizedCategory =
+      params.category.charAt(0).toUpperCase() + params.category.slice(1).toLowerCase();
+
     AND.push({
-      metadata: { path: ['category'], equals: params.category },
+      metadata: {
+        path: ['category'],
+        equals: normalizedCategory,
+      },
     });
   }
 
+  // Batch filter (multi-batch safe)
   if (params.batch) {
     AND.push({
       batches: {
         some: {
           batch: {
-            name: { contains: params.batch, mode: 'insensitive' },
+            name: {
+              contains: params.batch.trim(),
+              mode: 'insensitive',
+            },
           },
         },
       },
     });
   }
-  if (Number.isInteger(params.questions)) {
-    AND.push({
-      questions: {
-        _count: {
-          equals: Number(params.questions),
-        },
-      },
-    });
-  }
+
+  /* ---------------- GLOBAL SEARCH ---------------- */
   if (params.search) {
     const q = params.search.trim();
+
+    const normalizedCategory = q.charAt(0).toUpperCase() + q.slice(1).toLowerCase();
+
     AND.push({
       OR: [
-        { title: { contains: q, mode: 'insensitive' } },
-        { description: { contains: q, mode: 'insensitive' } },
-        { tags: { has: q } },
+        {
+          title: { contains: q, mode: 'insensitive' },
+        },
         {
           metadata: {
             path: ['category'],
-            string_contains: q,
+            string_contains: normalizedCategory,
           },
         },
         {
@@ -378,14 +392,6 @@ export async function listAssessments(
     });
   }
 
-  /* =====================================================
-     ✅ QUESTIONS COUNT FILTER (FIXED)
-     ===================================================== */
-  /* =====================================================
-   ✅ QUESTIONS COUNT FILTER (PRISMA SAFE)
-   ===================================================== */
-  const questionsCount = params.questions !== undefined ? Number(params.questions) : undefined;
-
   const where = { AND };
 
   /* ---------------- QUERY ---------------- */
@@ -396,8 +402,19 @@ export async function listAssessments(
       take: limit,
       orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
       include: {
-        questions: true,
-        batches: { include: { batch: true } },
+        batches: {
+          include: {
+            batch: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                academic_year: true,
+                semester: true,
+              },
+            },
+          },
+        },
         _count: { select: { questions: true } },
       },
     }),
@@ -406,7 +423,6 @@ export async function listAssessments(
 
   return buildPaginatedResponse(rows, total, page, limit);
 }
-
 
 export async function getAssessment(prisma: PrismaClient, assessmentId: bigint) {
   return prisma.assessments.findUnique({
@@ -546,8 +562,8 @@ export async function listAssessmentQuestions(prisma: PrismaClient, assessmentId
     where: { assessment_id: assessmentId },
     orderBy: { added_at: 'asc' },
     include: {
-      question: true
-      },
+      question: true,
+    },
   });
 
   return rows.map((row, index) => ({
@@ -775,7 +791,6 @@ export async function bulkUploadMcqs(
   };
 }
 
-
 export async function bulkCreateMcqForAssessment(
   prisma: PrismaClient,
   input: {
@@ -885,7 +900,6 @@ export async function bulkCreateMcqForAssessment(
   };
 }
 
-
 export async function createCodingQuestion(
   prisma: PrismaClient,
   input: {
@@ -927,7 +941,6 @@ export async function createCodingQuestion(
 
   return { success: true, question_id: question.id.toString() };
 }
-
 
 export async function getMcqQuestionForEdit(
   prisma: PrismaClient,
@@ -1319,7 +1332,6 @@ export async function updateAssessment(
     message: 'Assessment updated successfully',
   };
 }
-
 
 export async function bulkUploadCodingQuestions(
   prisma: PrismaClient,
