@@ -197,23 +197,23 @@ export async function listAssignmentQuestionsHandler(
   reply.send(data);
 }
 
-export async function deleteAssignmentQuestionHandler(
-  req: FastifyRequest<{
-    Params: { assignmentId: string; assignmentQuestionId: string };
-  }>,
-  reply: FastifyReply
-) {
-  const user = req.user as any;
+// export async function deleteAssignmentQuestionHandler(
+//   req: FastifyRequest<{
+//     Params: { assignmentId: string; assignmentQuestionId: string };
+//   }>,
+//   reply: FastifyReply
+// ) {
+//   const user = req.user as any;
 
-  await service.deleteAssignmentQuestion(
-    req.prisma,
-    BigInt(req.params.assignmentId),
-    BigInt(req.params.assignmentQuestionId),
-    user.institution_id
-  );
+//   await service.deleteAssignmentQuestion(
+//     req.prisma,
+//     BigInt(req.params.assignmentId),
+//     BigInt(req.params.assignmentQuestionId),
+//     user.institution_id
+//   );
 
-  reply.send({ success: true });
-}
+//   reply.send({ success: true });
+// }
 
 
 const PublishSchema = z.object({
@@ -253,3 +253,205 @@ export async function publishAssignmentFinalHandler(
 
   reply.send(result);
 }
+
+
+const CodingQuestionSchema = z.object({
+  title: z.string().min(3),
+  problem_statement: z.string().min(10),
+  constraints: z.string().optional(),
+  time_limit_seconds: z.number().optional(),
+  input_format: z.string(),
+  output_format: z.string(),
+  sample_test_cases: z
+    .array(
+      z.object({
+        input: z.string(),
+        output: z.string(),
+      })
+    )
+    .min(1),
+  languages: z.array(z.string()).min(1),
+  points: z.number().min(1),
+  difficulty_level: z.enum(['easy', 'medium', 'hard', 'expert']),
+  is_mandatory: z.boolean().optional(),
+});
+
+export async function createAssignmentCodingQuestionHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const parsed = CodingQuestionSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return reply.status(400).send(parsed.error);
+  }
+
+  const result = await service.createAssignmentCodingQuestion(req.prisma, {
+    assignment_id: BigInt(req.params.id),
+    institution_id: user.institution_id,
+    created_by: BigInt(user.sub),
+    body: parsed.data,
+  });
+
+  reply.send(result);
+}
+
+export async function getAssignmentQuestionsHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const result = await service.getAssignmentQuestions(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id
+  );
+
+  reply.send({
+    success: true,
+    data: result,
+  });
+}
+
+export async function bulkUploadAssignmentCodingHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const file = await (req as any).file();
+  if (!file) {
+    return reply.status(400).send({
+      message: 'CSV or Excel file required',
+    });
+  }
+
+  const result = await service.bulkUploadAssignmentCoding(req.prisma, {
+    assignment_id: BigInt(req.params.id),
+    institution_id: user.institution_id,
+    created_by: BigInt(user.sub),
+    fileName: file.filename,
+    buffer: await file.toBuffer(),
+  });
+
+  reply.send(result);
+}
+
+export async function assignmentPublishSummaryHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const result = await service.getAssignmentPublishSummary(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id
+  );
+
+  reply.send({
+    success: true,
+    data: result,
+  });
+}
+
+export async function assignmentAudienceSummaryHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const result = await service.getAssignmentAudienceSummary(
+    req.prisma,
+    BigInt(req.params.id),
+    user.institution_id
+  );
+
+  reply.send({
+    success: true,
+    data: result,
+  });
+}
+
+export async function editAssignmentQuestionHandler(
+  req: FastifyRequest<{
+    Params: { assignmentId: string; assignmentQuestionId: string };
+  }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const result = await service.editAssignmentQuestion(req.prisma, {
+    assignment_id: BigInt(req.params.assignmentId),
+    assignment_question_id: BigInt(req.params.assignmentQuestionId),
+    institution_id: user.institution_id,
+    body: req.body,
+  });
+
+  reply.send(result);
+}
+
+
+export async function deleteAssignmentQuestionHandler(
+  req: FastifyRequest<{
+    Params: { assignmentId: string; assignmentQuestionId: string };
+  }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const result = await service.deleteAssignmentQuestion(req.prisma, {
+    assignment_id: BigInt(req.params.assignmentId),
+    assignment_question_id: BigInt(req.params.assignmentQuestionId),
+    institution_id: user.institution_id,
+  });
+
+  reply.send(result);
+}
+
+const CreateTheorySchema = z.object({
+  topic: z.string(),
+  question_text: z.string().min(10),
+  answer_guidelines: z.string().optional(),
+  allow_file_upload: z.boolean().default(false),
+  allowed_file_types: z.array(z.string()).optional(),
+  points: z.number().min(1),
+  difficulty_level: z.enum(['easy', 'medium', 'hard', 'expert']),
+  is_mandatory: z.boolean().optional(),
+});
+
+export async function createAssignmentTheoryQuestionHandler(
+  req: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const user = req.user as any;
+
+  const parsed = CreateTheorySchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return reply.status(400).send(parsed.error);
+  }
+
+  const result = await service.createAssignmentTheoryQuestion(req.prisma, {
+    assignment_id: BigInt(req.params.id),
+    institution_id: user.institution_id,
+    created_by: BigInt(user.sub),
+    body: parsed.data,
+  });
+
+  reply.send(result);
+}
+
+const EditTheorySchema = z.object({
+  topic: z.string().optional(),
+  question_text: z.string().min(5),
+  answer_guidelines: z.string().optional(),
+  allow_file_upload: z.boolean().optional(),
+  allowed_file_types: z.array(z.string()).optional(),
+  points: z.number().min(1),
+  difficulty_level: z.enum(['easy', 'medium', 'hard', 'expert']),
+});
+

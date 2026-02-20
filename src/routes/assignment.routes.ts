@@ -1,5 +1,5 @@
 import { authGuard } from '../hooks/auth.guard';
-import { assignAssignmentAudienceHandler, assignmentAudienceMetaHandler, assignmentMetaHandler, assignmentQuestionMetaHandler, bulkUploadAssignmentMcqHandler, createAssignmentHandler, createAssignmentMcqQuestionHandler, listAssignmentsHandler, publishAssignmentFinalHandler } from '../controllers/assignment.controller';
+import { assignAssignmentAudienceHandler, assignmentAudienceMetaHandler, assignmentAudienceSummaryHandler, assignmentMetaHandler, assignmentPublishSummaryHandler, assignmentQuestionMetaHandler, bulkUploadAssignmentCodingHandler, bulkUploadAssignmentMcqHandler, createAssignmentCodingQuestionHandler, createAssignmentHandler, createAssignmentMcqQuestionHandler, createAssignmentTheoryQuestionHandler, deleteAssignmentQuestionHandler, editAssignmentQuestionHandler, getAssignmentQuestionsHandler, listAssignmentsHandler, publishAssignmentFinalHandler } from '../controllers/assignment.controller';
 
 export async function assignmentRoutes(app: any) {
   app.get('/assignments', { preHandler: [authGuard] }, listAssignmentsHandler);
@@ -35,4 +35,48 @@ export async function assignmentRoutes(app: any) {
   );
 
   app.post('/assignments/:id/publish', { preHandler: [authGuard] }, publishAssignmentFinalHandler);
+
+  app.post(
+    '/assignments/:id/questions/coding',
+    { preHandler: [authGuard] },
+    createAssignmentCodingQuestionHandler
+  );
+
+  app.get('/assignments/:id/questions', { preHandler: [authGuard] }, getAssignmentQuestionsHandler);
+  
+  app.post(
+    '/assignments/:id/questions/coding/bulk-upload',
+    { preHandler: [authGuard] },
+    bulkUploadAssignmentCodingHandler
+  );
+
+  app.get(
+    '/assignments/:id/publish-summary',
+    { preHandler: [authGuard] },
+    assignmentPublishSummaryHandler
+  );
+
+  app.get(
+    '/assignments/:id/audience-summary',
+    { preHandler: [authGuard] },
+    assignmentAudienceSummaryHandler
+  );
+  app.put(
+    '/assignments/:assignmentId/questions/:assignmentQuestionId',
+    { preHandler: [authGuard] },
+    editAssignmentQuestionHandler
+  );
+  app.delete(
+    '/assignments/:assignmentId/questions/:assignmentQuestionId',
+    { preHandler: [authGuard] },
+    deleteAssignmentQuestionHandler
+  );
+
+  app.post(
+    '/assignments/:id/questions/theory',
+    { preHandler: [authGuard] },
+    createAssignmentTheoryQuestionHandler
+  );
 }
+
+

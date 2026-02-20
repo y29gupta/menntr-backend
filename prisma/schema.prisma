@@ -140,10 +140,10 @@ model users {
 
   coding_submissions  coding_submissions[]
   assessment_sessions assessment_sessions[]
-
-  created_broadcasts  broadcasts[]    @relation("BroadcastCreator")
+  assignment_attempts assignment_attempts[]
+  created_broadcasts  broadcasts[]          @relation("BroadcastCreator")
   notifications       notifications[]
-  created_assignments assignments[]   @relation("AssignmentCreator")
+  created_assignments assignments[]         @relation("AssignmentCreator")
 
   @@unique([email, institution_id])
 }
@@ -309,6 +309,7 @@ model question_bank {
   assignment_questions assignment_questions[]
   coding_submissions   coding_submissions[]
   navigation_logs      question_navigation_log[]
+  assignment_answers   assignment_answers[]
 
   @@unique([institution_id, question_text, question_type], name: "uq_question_per_institution")
 }
@@ -578,6 +579,7 @@ enum QuestionType {
   multiple_correct
   true_false
   coding
+  theory
 }
 
 enum AttemptStatus {
@@ -787,42 +789,41 @@ enum BroadcastTargetType {
 }
 
 model assignments {
-  id               BigInt   @id @default(autoincrement())
-  institution_id   Int
-  title            String
-  description      String?
-  category         AssignmentCategory
-  assignment_type  AssignmentType
-  question_type    AssignmentQuestionType
+  id              BigInt                 @id @default(autoincrement())
+  institution_id  Int
+  title           String
+  description     String?
+  category        AssignmentCategory
+  assignment_type AssignmentType
+  question_type   AssignmentQuestionType
 
-  total_marks      Int      @default(0)
+  total_marks Int @default(0)
 
   // SCHEDULE
-  publish_at       DateTime?
-  expiry_at        DateTime?
+  publish_at DateTime?
+  expiry_at  DateTime?
 
   // STUDENT ACCESS SETTINGS
-  shuffle_questions       Boolean @default(false)
-  shuffle_options         Boolean @default(false)
-  allow_reattempts        Boolean @default(false)
-  show_correct_answers    Boolean @default(false)
-  show_score_immediately  Boolean @default(false)
+  shuffle_questions      Boolean @default(false)
+  shuffle_options        Boolean @default(false)
+  allow_reattempts       Boolean @default(false)
+  show_correct_answers   Boolean @default(false)
+  show_score_immediately Boolean @default(false)
 
-  status           AssignmentStatus @default(draft)
-  published_at     DateTime?
+  status       AssignmentStatus @default(draft)
+  published_at DateTime?
 
-  created_by       BigInt
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
-  is_deleted       Boolean  @default(false)
+  created_by BigInt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  is_deleted Boolean  @default(false)
 
-  institution institutions @relation(fields: [institution_id], references: [id])
-  creator     users        @relation("AssignmentCreator", fields: [created_by], references: [id])
-
+  institution institutions           @relation(fields: [institution_id], references: [id])
+  creator     users                  @relation("AssignmentCreator", fields: [created_by], references: [id])
+  attempts    assignment_attempts[]
   batches     assignment_batches[]
   questions   assignment_questions[]
 }
-
 
 enum AssignmentStatus {
   draft
@@ -841,12 +842,12 @@ enum AssignmentType {
   CODING
   GRADED
 }
+
 enum AssignmentQuestionType {
   MCQ
   CODING
   THEORY
 }
-
 
 model assignment_batches {
   assignment_id BigInt
@@ -869,4 +870,69 @@ model assignment_questions {
   question   question_bank @relation(fields: [question_id], references: [id])
 
   @@unique([assignment_id, question_id])
+}
+
+enum AssignmentAttemptStatus {
+  not_started
+  in_progress
+  submitted
+  evaluated
+}
+
+model assignment_attempts {
+  id            BigInt @id @default(autoincrement())
+  assignment_id BigInt
+  student_id    BigInt
+
+  attempt_number Int       @default(1)
+  started_at     DateTime  @default(now())
+  submitted_at   DateTime?
+
+  status AssignmentAttemptStatus @default(not_started)
+
+  total_questions    Int @default(0)
+  answered_questions Int @default(0)
+
+  score_obtained Decimal? @db.Decimal(10, 2)
+  total_score    Decimal? @db.Decimal(10, 2)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  assignment assignments @relation(fields: [assignment_id], references: [id], onDelete: Cascade)
+  student    users       @relation(fields: [student_id], references: [id], onDelete: Cascade)
+
+  answers assignment_answers[]
+
+  @@index([assignment_id])
+  @@index([student_id])
+}
+
+model assignment_answers {
+  id                     BigInt @id @default(autoincrement())
+  attempt_id             BigInt
+  assignment_question_id BigInt
+  question_id            BigInt
+
+  // MCQ
+  selected_option_ids BigInt[]
+
+  // THEORY
+  text_answer String?
+  file_url    String?
+
+  // CODING
+  language    String?
+  source_code String?
+
+  is_evaluated  Boolean  @default(false)
+  points_earned Decimal? @db.Decimal(10, 2)
+
+  answered_at DateTime?
+
+  attempt  assignment_attempts @relation(fields: [attempt_id], references: [id], onDelete: Cascade)
+  question question_bank       @relation(fields: [question_id], references: [id])
+
+  @@unique([attempt_id, assignment_question_id])
+  @@index([attempt_id])
 }
