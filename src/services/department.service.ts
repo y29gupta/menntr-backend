@@ -2,8 +2,8 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { NotFoundError, ConflictError, ForbiddenError } from '../utils/errors';
 import { buildPaginatedResponse, getPagination } from '../utils/pagination';
 
-const DEPARTMENT_LEVEL = 3;
-const CATEGORY_LEVEL = 2;
+export const DEPARTMENT_LEVEL = 3;
+export const CATEGORY_LEVEL = 2;
 
 // Helper function to assign permissions to a role based on plan and hierarchy
 async function assignPermissionsToRole(
@@ -61,10 +61,10 @@ export async function getDepartments(
     page?: number;
     limit?: number;
     search?: string;
-    name?: string;
-    code?: string;
-    category?: string;
-    hod?: string;
+    departments?: string[];
+    categories?: string[];
+    hods?: string[];
+    sort?: 'a_z' | 'z_a' | 'newest' | 'oldest';
   }
 ) {
   const { page, limit, skip } = getPagination(params);
@@ -75,62 +75,47 @@ export async function getDepartments(
     is_system_role: false,
   };
 
-  /* =======================
-     COLUMN FILTERS
-  ======================= */
+  /* ✅ CHECKBOX FILTERS */
 
-  if (params.name) {
+  if (params.departments?.length) {
     where.name = {
-      contains: params.name,
+      in: params.departments,
       mode: Prisma.QueryMode.insensitive,
     };
   }
 
-  if (params.code) {
-    where.code = {
-      contains: params.code,
-      mode: Prisma.QueryMode.insensitive,
-    };
-  }
-
-  // ✅ Category filter (parent role)
-  if (params.category) {
+  if (params.categories?.length) {
     where.parent = {
       name: {
-        contains: params.category,
+        in: params.categories,
         mode: Prisma.QueryMode.insensitive,
       },
     };
   }
 
-  // ✅ HOD / Assigned User filter
-  if (params.hod) {
+  if (params.hods?.length) {
     where.user_roles = {
       some: {
         user: {
-          OR: [
-            { first_name: { contains: params.hod, mode: 'insensitive' } },
-            { last_name: { contains: params.hod, mode: 'insensitive' } },
-            { email: { contains: params.hod, mode: 'insensitive' } },
-          ],
+          OR: params.hods.map((h: string) => ({
+            OR: [
+              { first_name: { contains: h, mode: 'insensitive' } },
+              { last_name: { contains: h, mode: 'insensitive' } },
+              { email: { contains: h, mode: 'insensitive' } },
+            ],
+          })),
         },
       },
     };
   }
 
-  /* =======================
-     GLOBAL SEARCH
-  ======================= */
+  /* ✅ GLOBAL SEARCH */
 
   if (params.search) {
     where.OR = [
       { name: { contains: params.search, mode: 'insensitive' } },
       { code: { contains: params.search, mode: 'insensitive' } },
-      {
-        parent: {
-          name: { contains: params.search, mode: 'insensitive' },
-        },
-      },
+      { parent: { name: { contains: params.search, mode: 'insensitive' } } },
       {
         user_roles: {
           some: {
@@ -147,6 +132,25 @@ export async function getDepartments(
     ];
   }
 
+  /* ✅ SORTING (NO RESPONSE CHANGE) */
+
+  let orderBy: any = { created_at: 'desc' };
+
+  switch (params.sort) {
+    case 'a_z':
+      orderBy = { name: 'asc' };
+      break;
+    case 'z_a':
+      orderBy = { name: 'desc' };
+      break;
+    case 'oldest':
+      orderBy = { created_at: 'asc' };
+      break;
+    case 'newest':
+    default:
+      orderBy = { created_at: 'desc' };
+  }
+
   const [rows, total] = await Promise.all([
     prisma.roles.findMany({
       where,
@@ -154,11 +158,9 @@ export async function getDepartments(
       take: limit,
       include: {
         parent: true,
-        user_roles: {
-          include: { user: true },
-        },
+        user_roles: { include: { user: true } },
       },
-      orderBy: { created_at: 'desc' },
+      orderBy,
     }),
     prisma.roles.count({ where }),
   ]);

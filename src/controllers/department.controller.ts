@@ -6,6 +6,8 @@ import {
   updateDepartment,
   getDepartmentMeta,
   deleteDepartment as deleteDepartmentService,
+  DEPARTMENT_LEVEL,
+  CATEGORY_LEVEL,
 } from '../services/department.service';
 import { Serializer } from '../utils/serializers';
 import { ValidationError, ForbiddenError } from '../utils/errors';
@@ -23,17 +25,32 @@ export async function listDepartments(request: FastifyRequest, reply: FastifyRep
     throw new ForbiddenError('No institution linked');
   }
 
-  const { page = 1, limit = 10, search = '', name, code, category, hod } = request.query as any;
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    departments,
+    categories,
+    hods,
+    sort = 'newest',
+  } = request.query as any;
+
+  // normalize arrays inside controller
+  const deptArray = departments ? (Array.isArray(departments) ? departments : [departments]) : [];
+
+  const categoryArray = categories ? (Array.isArray(categories) ? categories : [categories]) : [];
+
+  const hodArray = hods ? (Array.isArray(hods) ? hods : [hods]) : [];
 
   const result = await getDepartments(prisma, {
     institution_id: user.institution_id,
     page: Number(page),
     limit: Number(limit),
     search,
-    name,
-    code,
-    category,
-    hod,
+    departments: deptArray,
+    categories: categoryArray,
+    hods: hodArray,
+    sort,
   });
 
   const data = result.data.map((r: any) => ({
@@ -59,12 +76,109 @@ export async function listDepartments(request: FastifyRequest, reply: FastifyRep
     updated_at: r.updated_at,
   }));
 
+  // ✅ DO NOT CHANGE RESPONSE SHAPE
   reply.send({
     data,
-    total: result.meta.totalCount,
-    page: result.meta.currentPage,
-    limit: result.meta.pageSize,
     ...result.meta,
+  });
+}
+
+export async function getDistinctDepartments(request: FastifyRequest, reply: FastifyReply) {
+  const prisma = request.prisma;
+  const user_id = BigInt((request as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const departments = await prisma.roles.findMany({
+    where: {
+      institution_id: user.institution_id,
+      role_hierarchy_id: DEPARTMENT_LEVEL,
+      is_system_role: false,
+    },
+    select: { name: true },
+    distinct: ['name'],
+    orderBy: { name: 'asc' },
+  });
+
+  reply.send({
+    data: departments.map((d: any) => d.name),
+  });
+}
+
+export async function getDistinctCategories(request: FastifyRequest, reply: FastifyReply) {
+  const prisma = request.prisma;
+  const user_id = BigInt((request as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const categories = await prisma.roles.findMany({
+    where: {
+      institution_id: user.institution_id,
+      role_hierarchy_id: CATEGORY_LEVEL,
+      is_system_role: false,
+    },
+    select: { name: true },
+    distinct: ['name'],
+    orderBy: { name: 'asc' },
+  });
+
+  reply.send({
+    data: categories.map((c: any) => c.name),
+  });
+}
+
+export async function getDistinctHods(request: FastifyRequest, reply: FastifyReply) {
+  const prisma = request.prisma;
+  const user_id = BigInt((request as any).user.sub);
+
+  const user = await prisma.users.findUnique({
+    where: { id: user_id },
+    select: { institution_id: true },
+  });
+
+  if (!user?.institution_id) {
+    throw new ForbiddenError('No institution linked');
+  }
+
+  const hods = await prisma.user_roles.findMany({
+    where: {
+      role: {
+        institution_id: user.institution_id,
+        role_hierarchy_id: DEPARTMENT_LEVEL,
+      },
+    },
+    include: { user: true },
+  });
+
+  const distinct = Array.from(
+    new Map(
+      hods.map((h: any) => [
+        h.user.id.toString(),
+        {
+          id: h.user.id.toString(),
+          name: `${h.user.first_name ?? ''} ${h.user.last_name ?? ''}`.trim(),
+          email: h.user.email,
+        },
+      ])
+    ).values()
+  );
+
+  reply.send({
+    data: distinct,
   });
 }
 
