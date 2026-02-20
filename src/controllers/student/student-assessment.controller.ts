@@ -2,25 +2,47 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import * as service from '../../services/student/student-assessment.service';
 
 /* -----------------------------
-   TYPES
------------------------------- */
-interface ListAssessmentsQuery {
-  status?: 'ongoing' | 'upcoming' | 'completed';
-}
-
-/* -----------------------------
    LIST STUDENT ASSESSMENTS
 ------------------------------ */
+
+export type ListAssessmentsQuery = {
+  status?: 'ongoing' | 'upcoming' | 'completed';
+
+  type?: 'mcq' | 'coding' | 'mcq+coding';
+
+  ending?: 'today' | 'this_week';
+
+  scheduled?: 'tomorrow' | 'this_week' | 'next_week';
+
+  evaluation?: 'published' | 'under_evaluation';
+
+  search?: string;
+};
+
 export async function listStudentAssessmentsHandler(
   req: FastifyRequest<{ Querystring: ListAssessmentsQuery }>,
   reply: FastifyReply
 ) {
   const user = req.user as any;
 
+  let type = req.query.type as string | undefined;
+
+  if (type) {
+    type = type.toLowerCase().replace(/\s+/g, '+').trim();
+  }
+
   const data = await service.listStudentAssessments(req.prisma, {
     student_id: BigInt(user.sub),
     institution_id: user.institution_id,
+
     status: req.query.status ?? 'ongoing',
+    type: type as any,
+
+    ending: req.query.ending,
+    scheduled: req.query.scheduled,
+    evaluation: req.query.evaluation,
+
+    search: req.query.search,
   });
 
   reply.send(data);

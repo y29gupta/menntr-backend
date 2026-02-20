@@ -157,7 +157,6 @@ export async function createAssessmentHandler(req: FastifyRequest, reply: Fastif
   reply.send(assessment);
 }
 
-
 // STEP 2 – Assign Audience
 export async function assignAudienceHandler(
   req: FastifyRequest<{ Params: { id: string }; Body: AssignAudienceBody }>,
@@ -236,6 +235,7 @@ export async function publishAssessmentHandler(
 }
 
 // LIST & GET
+
 export async function listAssessmentsHandler(
   req: FastifyRequest<{
     Querystring: {
@@ -244,7 +244,10 @@ export async function listAssessmentsHandler(
       limit?: string;
       search?: string;
       status?: string;
+
+      title?: string;
       category?: string;
+      batch?: string;
     };
   }>,
   reply: FastifyReply
@@ -261,9 +264,12 @@ export async function listAssessmentsHandler(
     tab,
     page: Number(req.query.page),
     limit: Number(req.query.limit),
+
     search: req.query.search,
-    status: req.query.status,
+    title: req.query.title,
     category: req.query.category,
+    batch: req.query.batch,
+    status: req.query.status,
   });
 
   reply.send(list);
@@ -283,23 +289,20 @@ export async function createMCQQuestionHandler(
 ) {
   const user = req.user as any;
 
-  const result = await service.createMCQQuestion(
-    req.prisma,
-    {
-      assessment_id:BigInt(req.params.id),
-      institution_id: user.institution_id,
-      created_by: BigInt(user.sub),
-      question_type: 'mcq',
-      body: req.body,
-    }
-  );
+  const result = await service.createMCQQuestion(req.prisma, {
+    assessment_id: BigInt(req.params.id),
+    institution_id: user.institution_id,
+    created_by: BigInt(user.sub),
+    question_type: 'mcq',
+    body: req.body,
+  });
 
   reply.send(result);
 }
 
 export async function assessmentAudienceMetaHandler(req: FastifyRequest, reply: FastifyReply) {
   const user = req.user as any;
-  console.log("assessment audience", user)
+  console.log('assessment audience', user);
   const data = await service.getAssessmentAudienceMeta(req.prisma, user.institution_id);
 
   reply.send(data);
@@ -353,12 +356,11 @@ export async function deleteAssessmentHandler(
   reply: FastifyReply
 ) {
   const user = req.user as any;
-  console.log("user data", user)
+  console.log('user data', user);
   await service.deleteAssessment(req.prisma, BigInt(req.params.id), user.institution_id);
 
   reply.send({ success: true });
 }
-
 
 export async function bulkUploadMcqHandler(req: FastifyRequest, reply: FastifyReply) {
   const file = await (req as any).file();
@@ -408,11 +410,7 @@ export async function bulkCreateMcqForAssessmentHandler(
   reply.send(result);
 }
 
-
-export async function codingQuestionMetaHandler (
-  _: FastifyRequest,
-  reply: FastifyReply
-){
+export async function codingQuestionMetaHandler(_: FastifyRequest, reply: FastifyReply) {
   reply.send({
     topics: ['Arrays', 'Strings', 'Math', 'Dynamic Programming'],
     difficulties: ['easy', 'medium', 'hard'],
